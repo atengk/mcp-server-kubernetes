@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 并发控制：同一分支/PR 有新提交时自动取消正在执行的陈旧构建，防止竞态并节省资源
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate-pr-title:
+    name: 校验 PR 标题规范
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: read
+    steps:
+      - name: 校验 PR 标题符合 Conventional Commits
+        uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            build
+            ci
+            chore
+            revert
+
+  build-and-test:
+    name: 构建与测试
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # ========================================================================
+      # 业务构建与测试插槽（根据实际技术栈解除对应注释并按需微调）
+      # ========================================================================
+
+      # --- [Node.js / 前端项目插槽] ---
+      # - name: 安装 Node.js
+      #   uses: actions/setup-node@v4
+      #   with:
+      #     node-version: 20
+      #     cache: 'pnpm' # or 'npm', 'yarn'
+      # - name: 安装依赖与测试
+      #   run: |
+      #     pnpm install --frozen-lockfile
+      #     pnpm lint
+      #     pnpm test
+      #     pnpm build
+
+      # --- [Java / 后端项目插槽] ---
+      # - name: 设置 JDK
+      #   uses: actions/setup-java@v4
+      #   with:
+      #     distribution: 'temurin'
+      #     java-version: '21'
+      #     cache: 'maven' # or 'gradle'
+      # - name: Maven 构建与单元测试
+      #   run: mvn clean verify -B
+
+      # --- [Go / 工具项目插槽] ---
+      # - name: 安装 Go
+      #   uses: actions/setup-go@v5
+      #   with:
+      #     go-version: '1.22'
+      #     cache: true
+      # - name: Go 测试与构建
+      #   run: |
+      #     go test -v ./...
+      #     go build -v ./...
+
+      # --- [Python / 工具项目插槽] ---
+      # - name: 设置 Python
+      #   uses: actions/setup-python@v5
+      #   with:
+      #     python-version: '3.11'
+      # - name: 安装依赖并测试
+      #   run: |
+      #     python -m pip install --upgrade pip
+      #     pip install -r requirements.txt
+      #     pytest
+
+      # 默认占位验证（保障初始空仓库流水线正常绿灯通过）
+      - name: 验证仓库结构完整性
+        run: |
+          echo "CI 基础检查通过。请根据当前技术栈在 .github/workflows/ci.yml 中激活对应的构建测试插槽。"

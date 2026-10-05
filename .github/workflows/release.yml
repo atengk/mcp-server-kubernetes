@@ -1,0 +1,239 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  github-release:
+    name: 自动发版与产物挂载
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ------------------------------------------------------------------------
+      # 打包构建插槽（如有打包产物需上传至 Release 附件，在此处编译并计算校验和）
+      # ------------------------------------------------------------------------
+      # - name: 编译打包产物与计算安全校验和示例 (SHA-256)
+      #   run: |
+      #     mkdir -p dist
+      #     tar -czf dist/release-assets.tar.gz README.md LICENSE
+      #     # 自动为 dist 目录下所有文件生成 SHA-256 校验清单（排除 checksums 自身，防自污染报错）
+      #     cd dist && sha256sum $(ls -1 | grep -v '^checksums\.txt$') > checksums.txt
+
+      - name: 生成发布日志 (基于 Commit 与 PR)
+        uses: orhun/git-cliff-action@v4
+        id: git-cliff
+        with:
+          config: .cliff.toml
+          args: --latest --strip header
+        env:
+          OUTPUT: CHANGELOG_RELEASE.md
+
+      - name: 创建 GitHub Release 并挂载发布内容
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.git-cliff.outputs.content }}
+          draft: false
+          # 自动识别语义化版本连字符（如 v1.0.0-beta.1 / v1.0.0-rc.1 自动打上 Pre-release 标签）
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          # 如需随 Release 挂载可供直接下载的安装包/二进制文件与校验清单，解除下方注释并配置产物路径
+          # files: |
+          #   dist/*.tar.gz
+          #   dist/checksums.txt
+          #   target/*.jar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+# ==============================================================================
+# 官方中心仓库发布扩展配置参考（按需复制到下方新增 Job 或解除注释使用）
+# ==============================================================================
+#
+# 1. 发布到 npmjs (前端 / Node)
+# ------------------------------------------------------------------------------
+# publish-npm:
+#   name: 发布至 npm
+#   needs: github-release
+#   runs-on: ubuntu-latest
+#   permissions:
+#     contents: read
+#     id-token: write # 现代 npm Trusted Publishing (OIDC) 所需权限
+#   steps:
+#     - uses: actions/checkout@v4
+#     - uses: actions/setup-node@v4
+#       with:
+#         node-version: 20
+#         registry-url: 'https://registry.npmjs.org'
+#     - run: pnpm install && pnpm build
+#     - run: npm publish --access public
+#       env:
+#         NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+#
+# 2. 发布到 Maven Central (Java / 后端)
+# ------------------------------------------------------------------------------
+# publish-maven:
+#   name: 发布至 Maven Central
+#   needs: github-release
+#   runs-on: ubuntu-latest
+#   steps:
+#     - uses: actions/checkout@v4
+#     - uses: actions/setup-java@v4
+#       with:
+#         distribution: 'temurin'
+#         java-version: '21'
+#         server-id: ossrh
+#         server-username: MAVEN_USERNAME
+#         server-password: MAVEN_PASSWORD
+#         gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+#         gpg-passphrase: MAVEN_GPG_PASSPHRASE
+#     - run: mvn clean deploy -DskipTests -B
+#       env:
+#         MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+#         MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
+#         MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+#
+# 3. 发布到 PyPI (Python)
+# ------------------------------------------------------------------------------
+# publish-pypi:
+#   name: 发布至 PyPI
+#   needs: github-release
+#   runs-on: ubuntu-latest
+#   permissions:
+#     id-token: write # PyPI Trusted Publisher (OIDC) 无需配置固定 Token
+#   steps:
+#     - uses: actions/checkout@v4
+#     - uses: actions/setup-python@v5
+#       with:
+#         python-version: '3.11'
+#     - run: pip install build && python -m build
+#     - uses: pypa/gh-action-pypi-publish@release/v1
+#
+# 4. 构建并发布 Docker 镜像 (GHCR / Docker Hub 多架构镜像)
+# ------------------------------------------------------------------------------
+# publish-docker:
+#   name: 构建并推送 Docker 镜像
+#   needs: github-release
+#   runs-on: ubuntu-latest
+#   permissions:
+#     contents: read
+#     packages: write # 推送至 GitHub Container Registry (ghcr.io) 所需权限
+#   steps:
+#     - name: 检出代码 (全量检出供 SemVer 版本比对)
+#       uses: actions/checkout@v4
+#       with:
+#         fetch-depth: 0
+#
+#     - name: 设置 QEMU 模拟器（多架构支持）
+#       uses: docker/setup-qemu-action@v3
+#
+#     - name: 设置 Docker Buildx
+#       uses: docker/setup-buildx-action@v3
+#
+#     # 方式 A：登录 GitHub Container Registry (ghcr.io) - 推荐！零配置，免额外 Secret
+#     - name: 登录 GHCR
+#       uses: docker/login-action@v3
+#       with:
+#         registry: ghcr.io
+#         username: ${{ github.actor }}
+#         password: ${{ secrets.GITHUB_TOKEN }}
+#
+#     # 方式 B：登录 Docker Hub（如需推送至 Docker Hub，解除此步注释）
+#     # - name: 登录 Docker Hub
+#     #   uses: docker/login-action@v3
+#     #   with:
+#     #     username: ${{ secrets.DOCKERHUB_USERNAME }}
+#     #     password: ${{ secrets.DOCKERHUB_TOKEN }}
+#
+#     - name: 提取 Docker 镜像元数据 (自动计算 Tag 与 Labels)
+#       id: meta
+#       uses: docker/metadata-action@v5
+#       with:
+#         # 镜像目标：默认推送至 GHCR（免配置）；若需推送到 Docker Hub，在下方追加一行：your-username/your-image
+#         images: |
+#           ghcr.io/${{ github.repository }}
+#         tags: |
+#           type=semver,pattern={{version}}
+#           type=semver,pattern={{major}}.{{minor}}
+#           type=semver,pattern={{major}}
+#
+#     - name: 构建并推送多架构镜像 (amd64 / arm64)
+#       uses: docker/build-push-action@v5
+#       with:
+#         context: .
+#         push: true
+#         platforms: linux/amd64,linux/arm64
+#         tags: ${{ steps.meta.outputs.tags }}
+#         labels: ${{ steps.meta.outputs.labels }}
+#         provenance: false # 避免生成 unknown/unknown 幽灵标签，兼容老旧 Docker 与私有 Registry 环境
+#         sbom: false       # 避免生成附加 SBOM attestation，保持产物纯净最大化兼容
+#         cache-from: type=gha
+#         cache-to: type=gha,mode=max
+#
+# 5. 构建并分发 Go 语言跨平台二进制 CLI 工具 (GoReleaser)
+# ------------------------------------------------------------------------------
+# publish-go-binaries:
+#   name: 跨平台二进制构建 (GoReleaser)
+#   needs: github-release
+#   runs-on: ubuntu-latest
+#   permissions:
+#     contents: write # 上传二进制附件至 Release 所需权限
+#   steps:
+#     - name: 检出代码
+#       uses: actions/checkout@v4
+#       with:
+#         fetch-depth: 0
+#     - name: 安装 Go
+#       uses: actions/setup-go@v5
+#       with:
+#         go-version: '1.22'
+#     - name: 运行 GoReleaser (自动交叉编译全平台二进制与 Checksums)
+#       uses: goreleaser/goreleaser-action@v5
+#       with:
+#         distribution: goreleaser
+#         version: latest
+#         args: release --clean
+#       env:
+#         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#
+# 6. 自动部署前端应用或静态文档至 GitHub Pages
+# ------------------------------------------------------------------------------
+# deploy-pages:
+#   name: 部署至 GitHub Pages
+#   needs: github-release
+#   runs-on: ubuntu-latest
+#   permissions:
+#     contents: read
+#     pages: write      # 部署 GitHub Pages 所需权限
+#     id-token: write   # 身份校验所需权限
+#   environment:
+#     name: github-pages
+#     url: ${{ steps.deployment.outputs.page_url }}
+#   steps:
+#     - name: 检出代码
+#       uses: actions/checkout@v4
+#     - name: 安装 Node.js
+#       uses: actions/setup-node@v4
+#       with:
+#         node-version: 20
+#     - name: 构建前端产物
+#       run: |
+#         pnpm install
+#         pnpm build # 确保产物输出至 dist 目录
+#     - name: 上传 Pages 产物
+#       uses: actions/upload-pages-artifact@v3
+#       with:
+#         path: 'dist'
+#     - name: 部署至 GitHub Pages
+#       id: deployment
+#       uses: actions/deploy-pages@v4
+
