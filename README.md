@@ -1,7 +1,8 @@
 # MCP Server Kubernetes
 
 <p align="center">
-  <strong>Model Context Protocol (MCP) Server for Kubernetes</strong>
+  <strong>Model Context Protocol (MCP) Server for Kubernetes</strong><br>
+  企业级云原生智能运维与排障服务底座（Go 内核 + 跨平台 npx 零配置即启）
 </p>
 
 <p align="center">
@@ -10,6 +11,9 @@
   </a>
   <a href="https://github.com/atengk/mcp-server-kubernetes/releases">
     <img src="https://img.shields.io/github/v/release/atengk/mcp-server-kubernetes?style=flat-square" alt="Release" />
+  </a>
+  <a href="https://www.npmjs.com/package/@atengk/mcp-server-kubernetes">
+    <img src="https://img.shields.io/npm/v/@atengk/mcp-server-kubernetes?style=flat-square&color=cb3837&logo=npm" alt="npm version" />
   </a>
   <a href="./LICENSE">
     <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=flat-square" alt="License" />
@@ -23,7 +27,145 @@
 
 ## 📖 项目简介
 
-`mcp-server-kubernetes` 是基于模型上下文协议（Model Context Protocol, MCP）构建的 Kubernetes 交互服务底座。
+`mcp-server-kubernetes` 是基于模型上下文协议（Model Context Protocol, MCP）构建的 Kubernetes 集群交互与运维服务底座。
+
+项目采用**双层混合分发架构**：核心引擎采用 **Go 语言（client-go + mcp-go）** 编译为原生机器码，保障卓越的并发性能与对 Kubernetes 生态的 100% 原生契约支持；外部通过 **Node.js Wrapper** 打包发布至 npm 注册表，使得 AI 开发者能够直接通过 `npx` 零依赖、零编译环境秒级启动。
+
+---
+
+## ✨ 核心特性
+
+- ⚡ **原生高性能 & npx 零依赖分发**：Go 语言原生编译，通过 npm `optionalDependencies` 平台专属子包按需拉取，支持 macOS (Apple Silicon / Intel)、Linux (x64 / ARM64)、Windows (x64)。
+- 🧩 **MCP 三大原语全支持**：
+  - **Resources**：支持 `k8s://` 静态全景快照与参数化资源模板（`k8s://{namespace}/pods/{name}`），支持将工作负载实时状态即挂即用；
+  - **Prompts**：预置专家级运维排障提示词（Pod 崩溃根因分析、集群健康巡检、安全合规审计）；
+  - **Tools**：覆盖全生命周期排障诊断、动态 CRD 反射、RBAC 鉴权自检与受控拓扑下钻。
+- 🛡️ **企业级安全守卫 (Safety Guard)**：
+  - **默认强制只读**：变更类工具（Apply/Scale/Delete）必须显式传入 `--allow-write` 启动参数才可注册；
+  - **Secret 敏感数据脱敏**：读取机密时保留键名（Key）与元数据，所有数值强制掩码为 `[REDACTED]`；
+  - **受控容器命令探针**：容器内部 Exec 命令需显式开启 `--allow-exec`，内置 15 秒超时熔断与缓冲区硬截断。
+- 🧠 **大模型上下文深度优化 (Smart Pruning & Token Guard)**：
+  - **智能降噪 (Smart Pruning)**：自动剥离 `managedFields`、历史冗余配置与空节点，节约 70% 以上 Token 消耗；
+  - **Token 截断守卫 (Token Guard)**：日志与列表输出设定默认安全阈值，超量输出自动附带截断警示。
+- 🔄 **变更前预检闭环 (Dry-Run Preview)**：变更操作支持 Server-Side Dry-Run，自动生成 Unified Diff 供人类审核后再确认生效。
+- 🌐 **双通道通信支持**：默认 Stdio 管道接入本地客户端；支持 `--transport sse --port 8080` 切换常驻服务以 Pod 部署。
+
+---
+
+## ⚡ 快速接入指引 (Client Configuration)
+
+无需安装 Go 环境，确保系统已安装 Node.js (>= 18)，即可在各大 AI 客户端中一键接入。
+
+### 1. Claude Desktop 配置
+
+编辑 Claude Desktop 配置文件：
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "kubernetes": {
+      "command": "npx",
+      "args": ["-y", "@atengk/mcp-server-kubernetes"]
+    }
+  }
+}
+```
+
+> 若需开启写操作或容器内探针，在 `args` 数组中追加参数：`["-y", "@atengk/mcp-server-kubernetes", "--allow-write", "--allow-exec"]`。
+
+### 2. Cursor 配置
+
+1. 打开 Cursor 设置：**Settings -> Features -> MCP Servers**；
+2. 点击 **Add new MCP server**：
+   - **Name**: `kubernetes`
+   - **Type**: `command`
+   - **Command**: `npx -y @atengk/mcp-server-kubernetes`
+
+### 3. VS Code (Cline / Roo-Code) 配置
+
+在插件的 `mcp_settings.json` 中配置：
+
+```json
+{
+  "mcpServers": {
+    "kubernetes": {
+      "command": "npx",
+      "args": ["-y", "@atengk/mcp-server-kubernetes"]
+    }
+  }
+}
+```
+
+### 4. Kubernetes 集群内常驻运行 (SSE 模式 / Docker)
+
+使用官方多架构镜像部署为常驻服务：
+
+```bash
+docker run -d --name mcp-k8s \
+  -p 8080:8080 \
+  -v ~/.kube/config:/root/.kube/config:ro \
+  ghcr.io/atengk/mcp-server-kubernetes:latest \
+  --transport sse --port 8080
+```
+
+---
+
+## 🛠️ MCP 核心能力全景图表
+
+### 1. 只读资源端点 (Resources & Resource Templates)
+
+| 资源 URI / 模板 | 类型 | 说明与应用场景 |
+| :--- | :--- | :--- |
+| `k8s://contexts` | 静态资源 | 查看当前已配置的集群上下文列表与激活集群 |
+| `k8s://cluster/overview` | 静态资源 | 集群版本、节点状态、总配额与核心指标快照 |
+| `k8s://namespaces` | 静态资源 | 活跃命名空间及其运行状态 |
+| `k8s://api-resources` | 静态资源 | 当前集群已注册的核心 API 与 CRD 清单 |
+| `k8s://{namespace}/pods/{name}` | 资源模板 | 直接挂载指定 Pod 的运行状态作为会话背景 |
+| `k8s://{namespace}/deployments/{name}` | 资源模板 | 直接挂载指定 Deployment 的配置与副本就绪度 |
+
+### 2. 预置运维工作流模版 (Prompts)
+
+- `diagnose-pod-failure`：传入 `namespace` 与 `pod_name`，自动分步调度 Describe、Events 与 Logs 生成根本原因诊断报告；
+- `cluster-health-check`：全景巡检集群内未就绪节点、Pending 待调度 Pod、CrashLoop 容器与高危事件；
+- `workload-security-audit`：巡检工作负载的特权容器配置、root 用户运行与资源限制配额风险。
+
+### 3. 核心工具集 (Tools)
+
+#### 基础诊断与查询（默认开启）
+- `k8s_list_resources`：按命名空间或全集群查询资源列表（支持标签选择器过滤，内置 Token Guard 截断防护）；
+- `k8s_get_resource`：获取指定资源详情（输出自动剥离 managedFields，Secret 自动脱敏）；
+- `k8s_describe_resource`：获取类似 `kubectl describe` 的易读诊断详情；
+- `k8s_get_pod_logs`：获取容器日志（默认 tail 100 行，上限 1000 行，支持 `--previous`）；
+- `k8s_get_events`：检索指定命名空间或关联对象的集群事件。
+
+#### 高级排障与拓扑下钻（默认开启）
+- `k8s_get_resource_tree`：基于所有权与选择器一键下钻 Deployment/Service 级联下属 Pod/RS 拓扑树；
+- `k8s_auth_can_i`：RBAC 权限边界自检，评估当前主体或指定用户在命名空间内的执行权限；
+- `k8s_get_custom_resource` / `k8s_list_custom_resources`：通用动态反射，支持查询任意第三方 CRD。
+
+#### 容器探针与变更工具（需显式授权）
+- `k8s_exec_command`：在指定容器中执行非交互式排障命令（**需 `--allow-exec`**，内置 15 秒超时与 64KB 缓冲区截断）；
+- `k8s_diff_resource`：基于 Server-Side Dry-Run 计算变更增量 Unified Diff；
+- `k8s_apply_manifest`：创建或声明式应用资源 YAML（**需 `--allow-write`**）；
+- `k8s_scale_resource`：扩缩容工作负载副本数（**需 `--allow-write`**）；
+- `k8s_delete_resource`：安全删除指定资源（**需 `--allow-write`**）。
+
+---
+
+## ⚙️ 命令行参数全集 (CLI Flags)
+
+```text
+--transport <stdio|sse>   通信通道模式 (默认: stdio)
+--port <port>             SSE 模式监听端口 (默认: 8080)
+--allow-write             激活资源创建、变更与删除工具 (默认: false, 强制只读)
+--allow-exec              激活容器内部排障命令执行工具 (默认: false)
+--kubeconfig <path>       显式指定 kubeconfig 配置文件路径
+--context <name>          指定默认连接的集群上下文名称
+--help, -h                显示帮助信息
+--version, -v             显示当前版本信息
+```
 
 ---
 
@@ -31,29 +173,35 @@
 
 ```text
 .
-├── .github/
-│   ├── ISSUE_TEMPLATE/
-│   │   ├── bug_report.md           # Bug 缺陷反馈模版
-│   │   └── feature_request.md      # 新特性建议模版
-│   ├── workflows/
-│   │   ├── ci.yml                  # 自动化持续集成流水线
-│   │   └── release.yml             # 自动化版本发版与分发流水线
-│   └── PULL_REQUEST_TEMPLATE.md    # Pull Request 提交模版
-├── .cliff.toml                     # git-cliff 变更日志提取与分类配置
-├── .dockerignore                   # Docker 构建上下文忽略配置
-├── .editorconfig                   # 跨编辑器编码规范
-├── .gitattributes                  # 换行符与文件属性配置 (强制 LF)
-├── .gitignore                      # 通用版本控制忽略配置
-├── CONTRIBUTING.md                 # 贡献指南与 Commit 提交规范
+├── cmd/
+│   └── mcp-server-kubernetes/      # Go 应用程序入口 (main.go)
+├── internal/
+│   ├── config/                     # 命令行参数与环境配置解析
+│   ├── k8s/                        # client-go 与 dynamic 客户端封装
+│   ├── mcp/                        # mark3labs/mcp-go 原语实现 (tools, resources, prompts)
+│   ├── pruning/                    # Smart Pruning 智能降噪与脱敏管道
+│   └── safety/                     # Safety Guard 权限门禁与 Token 守卫
+├── npm/
+│   ├── bin/                        # npx CLI 调度脚本 (cli.js)
+│   ├── scripts/                    # 平台子包生成与矩阵发布脚本
+│   └── package.json                # npm 主包配置 (@atengk/mcp-server-kubernetes)
+├── docs/
+│   ├── adr/                        # 架构决策记录 (0001 ~ 0014)
+│   └── agents/                     # Agent 协作规范 (issue-tracker, triage, domain)
+├── .cliff.toml                     # 自动化版本日志提取规则
+├── .github/workflows/              # GitHub Actions CI 与全自动 Release 流水线
+├── AGENTS.md                       # AI Agent 协作与工程规范
+├── CONTEXT.md                      # 领域核心模型与词汇表
+├── CONTRIBUTING.md                 # 贡献指南与 Commit 规范
 ├── LICENSE                         # 开源许可证 (Apache-2.0)
-└── README.md                       # 项目主文档
+└── README.md                       # 本文档
 ```
 
 ---
 
 ## 🤝 参与贡献
 
-欢迎参与贡献！请在提交代码前仔细阅读我们的 [贡献指南](./CONTRIBUTING.md)。
+欢迎任何形式的贡献与建议！请在提交代码前仔细阅读我们的 [贡献指南](./CONTRIBUTING.md) 与 [架构决策记录](./docs/adr/)。
 
 ---
 
