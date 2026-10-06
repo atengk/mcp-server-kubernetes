@@ -288,6 +288,16 @@ func (m *ClientManager) GetDynamicClient(contextName string) (dynamic.Interface,
 	return client, nil
 }
 
+// GetRESTConfig 获取指定 contextName 的底层 *rest.Config 配置（用于 Exec 等流式传输通道）。
+//
+// @param contextName 目标集群上下文名称（可选）
+// @return *rest.Config REST 配置对象
+// @return error 解析或构建失败错误
+func (m *ClientManager) GetRESTConfig(contextName string) (*rest.Config, error) {
+	ctxName := m.resolveTargetContext(contextName)
+	return m.buildRESTConfig(ctxName)
+}
+
 // resolveTargetContext 解析实际使用的 Context 名称。
 func (m *ClientManager) resolveTargetContext(contextName string) string {
 	if contextName == "" {
