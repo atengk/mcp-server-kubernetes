@@ -12,6 +12,7 @@ import (
 	"sort"
 	"sync"
 
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -42,10 +43,14 @@ type RawConfigLoaderFunc func(path string) (*clientcmdapi.Config, error)
 // ClientFactoryFunc 定义由 rest.Config 构建 kubernetes.Interface 的工厂函数。
 type ClientFactoryFunc func(rc *rest.Config) (kubernetes.Interface, error)
 
+// DynamicClientFactoryFunc 定义由 rest.Config 构建 dynamic.Interface 的工厂函数。
+type DynamicClientFactoryFunc func(rc *rest.Config) (dynamic.Interface, error)
+
 type options struct {
-	inClusterLoader InClusterLoaderFunc
-	rawConfigLoader RawConfigLoaderFunc
-	clientFactory   ClientFactoryFunc
+	inClusterLoader      InClusterLoaderFunc
+	rawConfigLoader      RawConfigLoaderFunc
+	clientFactory        ClientFactoryFunc
+	dynamicClientFactory DynamicClientFactoryFunc
 }
 
 // Option 定义配置 ClientManager 初始化特性的函数选项。
@@ -81,6 +86,16 @@ func WithClientFactory(fn ClientFactoryFunc) Option {
 	}
 }
 
+// WithDynamicClientFactory 注入自定义 Kubernetes Dynamic Client 工厂函数。
+//
+// @param fn 自定义 Dynamic Client 构建函数
+// @return Option 配置函数
+func WithDynamicClientFactory(fn DynamicClientFactoryFunc) Option {
+	return func(o *options) {
+		o.dynamicClientFactory = fn
+	}
+}
+
 // ClientManager 管理与一个或多个 Kubernetes 集群的连接池及动态路由。
 type ClientManager struct {
 	mu             sync.RWMutex
@@ -91,7 +106,8 @@ type ClientManager struct {
 	rawConfig      *clientcmdapi.Config
 	currentContext string
 
-	clientPool map[string]kubernetes.Interface
+	clientPool  map[string]kubernetes.Interface
+	dynamicPool map[string]dynamic.Interface
 }
 
 // NewClientManager 初始化 Kubernetes 客户端管理器，执行探测链路并在需要时加载 Kubeconfig。
@@ -102,9 +118,10 @@ type ClientManager struct {
 // @return error 探测与初始化失败时返回错误
 func NewClientManager(cfg Config, opts ...Option) (*ClientManager, error) {
 	mgrOpts := options{
-		inClusterLoader: rest.InClusterConfig,
-		rawConfigLoader: clientcmd.LoadFromFile,
-		clientFactory:   func(rc *rest.Config) (kubernetes.Interface, error) { return kubernetes.NewForConfig(rc) },
+		inClusterLoader:      rest.InClusterConfig,
+		rawConfigLoader:      clientcmd.LoadFromFile,
+		clientFactory:        func(rc *rest.Config) (kubernetes.Interface, error) { return kubernetes.NewForConfig(rc) },
+		dynamicClientFactory: func(rc *rest.Config) (dynamic.Interface, error) { return dynamic.NewForConfig(rc) },
 	}
 
 	for _, opt := range opts {
@@ -114,9 +131,10 @@ func NewClientManager(cfg Config, opts ...Option) (*ClientManager, error) {
 	}
 
 	mgr := &ClientManager{
-		cfg:        cfg,
-		opts:       mgrOpts,
-		clientPool: make(map[string]kubernetes.Interface),
+		cfg:         cfg,
+		opts:        mgrOpts,
+		clientPool:  make(map[string]kubernetes.Interface),
+		dynamicPool: make(map[string]dynamic.Interface),
 	}
 
 	// 1. 若未显式传入 KubeconfigPath，优先探测集群内 In-Cluster ServiceAccount
@@ -229,6 +247,44 @@ func (m *ClientManager) GetClient(contextName string) (kubernetes.Interface, err
 	}
 
 	m.clientPool[ctxName] = client
+	return client, nil
+}
+
+// GetDynamicClient 根据传入的 contextName 动态路由并获取对应的 Kubernetes Dynamic Client。
+// 若 contextName 为空，自动使用当前默认 Context；连接池保证并发安全复用。
+//
+// @param contextName 目标集群上下文名称（可选）
+// @return dynamic.Interface Dynamic 客户端接口
+// @return error 目标 Context 不存在或初始化失败时返回错误
+func (m *ClientManager) GetDynamicClient(contextName string) (dynamic.Interface, error) {
+	ctxName := m.resolveTargetContext(contextName)
+
+	m.mu.RLock()
+	if c, ok := m.dynamicPool[ctxName]; ok {
+		m.mu.RUnlock()
+		return c, nil
+	}
+	m.mu.RUnlock()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// 双重检查锁定，避免并发重复创建
+	if c, ok := m.dynamicPool[ctxName]; ok {
+		return c, nil
+	}
+
+	rc, err := m.buildRESTConfig(ctxName)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := m.opts.dynamicClientFactory(rc)
+	if err != nil {
+		return nil, fmt.Errorf("创建 Context %q 的 Kubernetes Dynamic 客户端失败: %w", ctxName, err)
+	}
+
+	m.dynamicPool[ctxName] = client
 	return client, nil
 }
 

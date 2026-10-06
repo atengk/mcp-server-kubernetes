@@ -109,7 +109,14 @@ func makeAuthCanIHandler(mgr *k8s.ClientManager) mcpserver.ToolHandlerFunc {
 			return mcp.NewToolResultError(fmt.Sprintf("获取集群客户端失败: %v", err)), nil
 		}
 
-		checkResult, err := evaluateAccessReview(ctx, client, verb, resource, namespace, subresource, group, user)
+		checkResult, err := evaluateAccessReview(ctx, client, accessReviewOptions{
+			Verb:        verb,
+			Resource:    resource,
+			Namespace:   namespace,
+			Subresource: subresource,
+			Group:       group,
+			User:        user,
+		})
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("权限自检执行失败: %v", err)), nil
 		}
@@ -129,38 +136,49 @@ func makeAuthCanIHandler(mgr *k8s.ClientManager) mcpserver.ToolHandlerFunc {
 	}
 }
 
+// accessReviewOptions 封装权限评估所需的详细上下文选项。
+type accessReviewOptions struct {
+	// Verb 操作动词
+	Verb string
+	// Resource 目标资源种类
+	Resource string
+	// Namespace 作用域命名空间
+	Namespace string
+	// Subresource 子资源名称
+	Subresource string
+	// Group 资源所属 API 组
+	Group string
+	// User 被评估的目标用户名
+	User string
+}
+
 // evaluateAccessReview 调用 Kubernetes AccessReview API 评估权限。
 //
 // @param ctx 请求上下文
 // @param client Kubernetes 集群客户端接口
-// @param verb 操作动词
-// @param resource 目标资源
-// @param namespace 命名空间
-// @param subresource 子资源
-// @param group API Group
-// @param user 目标用户
+// @param opts 鉴权参数选项
 // @return *CanIResult 评估结果结构
 // @return error API 调用错误
-func evaluateAccessReview(ctx context.Context, client kubernetes.Interface, verb, resource, namespace, subresource, group, user string) (*CanIResult, error) {
+func evaluateAccessReview(ctx context.Context, client kubernetes.Interface, opts accessReviewOptions) (*CanIResult, error) {
 	result := &CanIResult{
-		Verb:        verb,
-		Resource:    resource,
-		Namespace:   namespace,
-		Subresource: subresource,
-		Group:       group,
-		User:        user,
+		Verb:        opts.Verb,
+		Resource:    opts.Resource,
+		Namespace:   opts.Namespace,
+		Subresource: opts.Subresource,
+		Group:       opts.Group,
+		User:        opts.User,
 	}
 
 	attrs := &authorizationv1.ResourceAttributes{
-		Namespace:   namespace,
-		Verb:        verb,
-		Group:       group,
-		Resource:    resource,
-		Subresource: subresource,
+		Namespace:   opts.Namespace,
+		Verb:        opts.Verb,
+		Group:       opts.Group,
+		Resource:    opts.Resource,
+		Subresource: opts.Subresource,
 	}
 
 	// 1. 若未指定具体用户，基于当前客户端凭据发起 SelfSubjectAccessReview
-	if user == "" {
+	if opts.User == "" {
 		selfSAR := &authorizationv1.SelfSubjectAccessReview{
 			Spec: authorizationv1.SelfSubjectAccessReviewSpec{
 				ResourceAttributes: attrs,
@@ -170,17 +188,14 @@ func evaluateAccessReview(ctx context.Context, client kubernetes.Interface, verb
 		if err != nil {
 			return nil, fmt.Errorf("创建 SelfSubjectAccessReview 失败: %w", err)
 		}
-		result.Allowed = resp.Status.Allowed
-		result.Denied = resp.Status.Denied
-		result.Reason = resp.Status.Reason
-		result.EvaluationError = resp.Status.EvaluationError
+		populateResultFromStatus(result, resp.Status)
 		return result, nil
 	}
 
 	// 2. 若显式指定目标用户，基于 SubjectAccessReview 模拟评估目标用户的权限边界
 	sar := &authorizationv1.SubjectAccessReview{
 		Spec: authorizationv1.SubjectAccessReviewSpec{
-			User:               user,
+			User:               opts.User,
 			ResourceAttributes: attrs,
 		},
 	}
@@ -188,9 +203,14 @@ func evaluateAccessReview(ctx context.Context, client kubernetes.Interface, verb
 	if err != nil {
 		return nil, fmt.Errorf("创建 SubjectAccessReview 失败: %w", err)
 	}
-	result.Allowed = resp.Status.Allowed
-	result.Denied = resp.Status.Denied
-	result.Reason = resp.Status.Reason
-	result.EvaluationError = resp.Status.EvaluationError
+	populateResultFromStatus(result, resp.Status)
 	return result, nil
+}
+
+// populateResultFromStatus 填充 AccessReview 返回的权限状态信息。
+func populateResultFromStatus(result *CanIResult, status authorizationv1.SubjectAccessReviewStatus) {
+	result.Allowed = status.Allowed
+	result.Denied = status.Denied
+	result.Reason = status.Reason
+	result.EvaluationError = status.EvaluationError
 }

@@ -11,6 +11,9 @@ import (
 
 	"github.com/atengk/mcp-server-kubernetes/internal/k8s"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/dynamic"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
@@ -231,3 +234,38 @@ func TestManager_FakeClientset_Interactions(t *testing.T) {
 		t.Fatalf("查询结果不应为 nil")
 	}
 }
+
+func TestManager_DynamicClient(t *testing.T) {
+	fakeDynamic := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+
+	mgr, err := k8s.NewClientManager(
+		k8s.Config{},
+		k8s.WithInClusterLoader(func() (*rest.Config, error) {
+			return &rest.Config{Host: "https://kubernetes.default.svc"}, nil
+		}),
+		k8s.WithDynamicClientFactory(func(rc *rest.Config) (dynamic.Interface, error) {
+			return fakeDynamic, nil
+		}),
+	)
+	if err != nil {
+		t.Fatalf("初始化失败: %v", err)
+	}
+
+	dynClient, err := mgr.GetDynamicClient("")
+	if err != nil {
+		t.Fatalf("获取 DynamicClient 失败: %v", err)
+	}
+	if dynClient != fakeDynamic {
+		t.Errorf("获取的 DynamicClient 与注入实例不一致")
+	}
+
+	// 验证缓存命中
+	dynClientCached, err := mgr.GetDynamicClient("")
+	if err != nil {
+		t.Fatalf("二次获取 DynamicClient 失败: %v", err)
+	}
+	if dynClientCached != dynClient {
+		t.Errorf("预期命中连接池缓存")
+	}
+}
+

@@ -160,10 +160,10 @@ func buildDeploymentTree(ctx context.Context, client kubernetes.Interface, names
 		Children:  make([]*ResourceNode, 0),
 	}
 
-	// 1. 获取下属关联的 ReplicaSets
+	// 获取下属关联的 ReplicaSets
 	rsList, err := client.AppsV1().ReplicaSets(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return root, nil
+		return nil, fmt.Errorf("列出关联 ReplicaSets 失败: %w", err)
 	}
 
 	for _, rs := range rsList.Items {
@@ -226,7 +226,7 @@ func buildReplicaSetNodeWithRS(ctx context.Context, client kubernetes.Interface,
 	}
 	podList, err := client.CoreV1().Pods(rs.Namespace).List(ctx, listOpts)
 	if err != nil {
-		return node, nil
+		return nil, fmt.Errorf("列出关联 Pods 失败: %w", err)
 	}
 
 	for _, p := range podList.Items {
