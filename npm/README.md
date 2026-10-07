@@ -65,11 +65,11 @@ npx @atengk/mcp-server-kubernetes --allow-write --allow-exec
 
 ---
 
-## 在 MCP 客户端中配置
+## 通用客户端接入与多环境配置
 
-### Claude Desktop
+各大主流 MCP 客户端（Claude Desktop、Cursor、VS Code Cline/Roo-Code、Windsurf 等）均遵从标准的 `mcpServers` JSON 配置规范：
 
-在 Claude Desktop 配置文件中（macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`，Windows: `%APPDATA%\Claude\claude_desktop_config.json`）添加如下配置：
+### 1. 单环境通用配置模版
 
 ```json
 {
@@ -79,6 +79,8 @@ npx @atengk/mcp-server-kubernetes --allow-write --allow-exec
       "args": [
         "-y",
         "@atengk/mcp-server-kubernetes",
+        "--kubeconfig", "/path/to/custom-kubeconfig.yaml",
+        "--context", "my-cluster-context",
         "--allow-write"
       ]
     }
@@ -86,18 +88,29 @@ npx @atengk/mcp-server-kubernetes --allow-write --allow-exec
 }
 ```
 
-### Cursor / VS Code / Windsurf
-
-在相应编辑器的 MCP 配置文件中添加：
+### 2. 多环境物理隔离最佳实践 (开发可写 + 生产只读)
 
 ```json
 {
   "mcpServers": {
-    "kubernetes": {
+    "k8s-dev": {
       "command": "npx",
       "args": [
         "-y",
-        "@atengk/mcp-server-kubernetes"
+        "@atengk/mcp-server-kubernetes",
+        "--kubeconfig", "/path/to/dev.yaml",
+        "--context", "dev-cluster",
+        "--allow-write",
+        "--allow-exec"
+      ]
+    },
+    "k8s-prod": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@atengk/mcp-server-kubernetes",
+        "--kubeconfig", "/path/to/prod.yaml",
+        "--context", "prod-cluster"
       ]
     }
   }

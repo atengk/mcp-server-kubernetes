@@ -55,51 +55,105 @@
 
 ---
 
-## ⚡ 快速接入指引 (Client Configuration)
+## ⚡ 客户端通用接入与多环境配置 (Client Configuration)
 
-无需安装 Go 环境，确保系统已安装 Node.js (>= 18)，即可在各大 AI 客户端中一键接入。
+无需安装 Go 环境，确保宿主机已安装 Node.js (>= 18)，各大主流 AI 客户端（Claude Desktop、Cursor、VS Code Cline/Roo-Code、Windsurf、Zed 等）底层均采用标准的 `mcpServers` JSON 格式协议。
 
-### 1. Claude Desktop 配置
+### 1. 通用客户端配置文件路径速查
 
-编辑 Claude Desktop 配置文件：
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+| 客户端 / AI Agent | 配置文件路径 (macOS / Linux) | 配置文件路径 (Windows) |
+| :--- | :--- | :--- |
+| **Claude Desktop** | `~/Library/Application Support/Claude/claude_desktop_config.json` | `%APPDATA%\Claude\claude_desktop_config.json` |
+| **Cursor** | 项目根目录 `.cursor/mcp.json` 或 **Settings -> Features -> MCP Servers** | 同左 |
+| **VS Code (Cline / Roo-Code)** | `~/Library/Application Support/Code/User/globalStorage/.../mcp_settings.json` | `%APPDATA%\Code\User\globalStorage\...\mcp_settings.json` |
+| **Windsurf** | `~/.codeium/windsurf/mcp_config.json` | `%USERPROFILE%\.codeium\windsurf\mcp_config.json` |
 
-```json
-{
-  "mcpServers": {
-    "kubernetes": {
-      "command": "npx",
-      "args": ["-y", "@atengk/mcp-server-kubernetes"]
-    }
-  }
-}
-```
+---
 
-> 若需开启写操作或容器内探针，在 `args` 数组中追加参数：`["-y", "@atengk/mcp-server-kubernetes", "--allow-write", "--allow-exec"]`。
+### 2. 标准通用配置模版 (单环境)
 
-### 2. Cursor 配置
-
-1. 打开 Cursor 设置：**Settings -> Features -> MCP Servers**；
-2. 点击 **Add new MCP server**：
-   - **Name**: `kubernetes`
-   - **Type**: `command`
-   - **Command**: `npx -y @atengk/mcp-server-kubernetes`
-
-### 3. VS Code (Cline / Roo-Code) 配置
-
-在插件的 `mcp_settings.json` 中配置：
+直接在上述配置文件中的 `mcpServers` 对象内添加以下内容。支持通过 `--kubeconfig` 指定自定义配置文件路径，通过 `--context` 绑定默认集群上下文：
 
 ```json
 {
   "mcpServers": {
     "kubernetes": {
       "command": "npx",
-      "args": ["-y", "@atengk/mcp-server-kubernetes"]
+      "args": [
+        "-y",
+        "@atengk/mcp-server-kubernetes",
+        "--kubeconfig", "/path/to/custom-kubeconfig.yaml",
+        "--context", "my-cluster-context",
+        "--allow-write"
+      ]
     }
   }
 }
 ```
+
+> 💡 **参数与环境变量说明**：
+> - 未指定 `--kubeconfig` 时，默认按顺位探测：集群内 In-Cluster ServiceAccount -> 环境变量 `KUBECONFIG` -> 宿主机 `~/.kube/config`；
+> - 亦可通过环境变量传递：在 Server 对象中追加 `"env": { "KUBECONFIG": "/path/to/custom-kubeconfig.yaml" }`；
+> - 写操作门禁：默认强制只读，按需追加 `--allow-write`（开启增删改）与 `--allow-exec`（开启容器 Exec 探针）。
+
+---
+
+### 3. 多环境 / 多集群配置最佳实践
+
+针对多环境需求（如开发测试与生产集群），根据安全隔离要求提供两种典型拓扑范式：
+
+#### 方案 A：多实例物理隔离与权限分级 (推荐最佳实践)
+
+在配置中声明多个独立的服务实例，分别绑定各自的配置文件或 Context，并针对不同环境设置**差异化安全防线**（开发环境允许写操作与容器探针，生产环境强制保持只读以防 AI 误操作）：
+
+```json
+{
+  "mcpServers": {
+    "k8s-dev": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@atengk/mcp-server-kubernetes",
+        "--kubeconfig", "/path/to/dev-kubeconfig.yaml",
+        "--context", "dev-cluster",
+        "--allow-write",
+        "--allow-exec"
+      ]
+    },
+    "k8s-prod": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@atengk/mcp-server-kubernetes",
+        "--kubeconfig", "/path/to/prod-kubeconfig.yaml",
+        "--context", "prod-cluster"
+      ]
+    }
+  }
+}
+```
+
+#### 方案 B：单实例动态 Context 路由 (轻量模式)
+
+若各集群的访问凭据已合并于同一个 `kubeconfig`（或默认配置包含多个上下文）：
+只需配置一个通用 Server，AI Agent 可通过内置资源 `k8s://contexts` 感知所有可用集群，并在调用任意工具时动态传入 `context: "prod-cluster"` 参数，底层连接池会自动并发安全路由调度：
+
+```json
+{
+  "mcpServers": {
+    "kubernetes": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@atengk/mcp-server-kubernetes",
+        "--kubeconfig", "/path/to/merged-kubeconfig.yaml"
+      ]
+    }
+  }
+}
+```
+
+---
 
 ### 4. Kubernetes 集群内常驻运行 (SSE 模式 / 生产级部署)
 
