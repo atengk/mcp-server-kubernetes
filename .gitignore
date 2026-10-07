@@ -49,6 +49,7 @@ dist/
 .nuxt/
 .cache/
 .turbo/
+npm/packages/
 
 # ==============================================================================
 # Java / Maven / Gradle
@@ -86,3 +87,6 @@ venv/
 *.so
 *.dylib
 /bin/
+
+# 豁免 npm 源码 bin 目录
+!npm/bin/

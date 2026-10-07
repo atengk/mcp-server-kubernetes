@@ -1,0 +1,47 @@
+{
+  "name": "@atengk/mcp-server-kubernetes",
+  "version": "0.0.0-development",
+  "description": "Model Context Protocol (MCP) Server for Kubernetes - Cross-platform npm package with native Go binary distribution",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "kubernetes",
+    "k8s",
+    "llm",
+    "ai",
+    "agent"
+  ],
+  "homepage": "https://github.com/atengk/mcp-server-kubernetes",
+  "bugs": {
+    "url": "https://github.com/atengk/mcp-server-kubernetes/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/atengk/mcp-server-kubernetes.git"
+  },
+  "license": "Apache-2.0",
+  "author": "Ateng",
+  "type": "module",
+  "bin": {
+    "mcp-server-kubernetes": "./bin/cli.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "test": "node --test",
+    "build:packages": "node scripts/build-packages.js"
+  },
+  "optionalDependencies": {
+    "@atengk/mcp-server-kubernetes-darwin-arm64": "0.0.0-development",
+    "@atengk/mcp-server-kubernetes-darwin-x64": "0.0.0-development",
+    "@atengk/mcp-server-kubernetes-linux-arm64": "0.0.0-development",
+    "@atengk/mcp-server-kubernetes-linux-x64": "0.0.0-development",
+    "@atengk/mcp-server-kubernetes-win32-x64": "0.0.0-development"
+  }
+}
