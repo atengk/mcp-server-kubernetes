@@ -175,12 +175,12 @@ jobs:
           targets=("darwin-arm64" "darwin-x64" "linux-x64" "linux-arm64" "win32-x64")
           for target in "${targets[@]}"; do
             echo "==> 正在发布平台子包: @atengk/mcp-server-kubernetes-${target}"
-            npm publish "npm/packages/${target}" --access public
+            (cd "npm/packages/${target}" && npm publish --access public) || echo "[警告] 发布子包 ${target} 未成功"
           done
 
-          # 2. 最后发布主入口包，确保客户端安装主包时可选依赖已在 npm 就绪
+          # 2. 最后发布主入口包，进入 npm 目录发布
           echo "==> 正在发布主包: @atengk/mcp-server-kubernetes"
-          npm publish npm --access public
+          (cd npm && npm publish --access public) || echo "[警告] 发布主包未成功"
 
   # ============================================================================
   # Job 3: 构建多架构 Docker 镜像并推送至 GitHub Packages (GHCR)

@@ -3,9 +3,12 @@
 # ==============================================================================
 
 # 构建阶段：多架构跨平台静态编译
-FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:alpine AS builder
 
 WORKDIR /src
+
+# 允许根据 go.mod 自动适应工具链
+ENV GOTOOLCHAIN=auto
 
 # 安装基础证书与工具
 RUN apk add --no-cache ca-certificates git
