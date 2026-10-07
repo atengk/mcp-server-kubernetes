@@ -15,6 +15,9 @@
   <a href="https://www.npmjs.com/package/@atengk/mcp-server-kubernetes">
     <img src="https://img.shields.io/npm/v/@atengk/mcp-server-kubernetes?style=flat-square&color=cb3837&logo=npm" alt="npm version" />
   </a>
+  <a href="https://github.com/atengk/mcp-server-kubernetes/pkgs/container/mcp-server-kubernetes">
+    <img src="https://img.shields.io/badge/GHCR-Docker_Image-2496ed?style=flat-square&logo=docker&logoColor=white" alt="Docker Image" />
+  </a>
   <a href="./LICENSE">
     <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=flat-square" alt="License" />
   </a>
@@ -110,7 +113,7 @@ kubectl apply -f deploy/kubernetes-sse.yaml
 
 服务将在 `mcp-system` 命名空间下启动，并通过 `mcp-server-kubernetes.mcp-system.svc:8080` 向集群内的其他服务提供 SSE 协议端点。
 
-#### 方式 B：使用 Docker 单机启动
+#### 方式 B：使用 Docker 单机启动 (多架构支持 linux/amd64, linux/arm64)
 
 ```bash
 docker run -d --name mcp-k8s \
@@ -220,7 +223,7 @@ docker run -d --name mcp-k8s \
 ├── scripts/
 │   └── build-cross-platforms.sh    # 5 大主流平台架构交叉编译脚本
 ├── docs/
-│   ├── adr/                        # 架构决策记录 (0001 ~ 0015)
+│   ├── adr/                        # 架构决策记录 (0001 ~ 0016)
 │   └── agents/                     # Agent 协作规范 (issue-tracker, triage, domain)
 ├── Dockerfile                      # 生产级多阶段非 root 容器镜像定义
 ├── .cliff.toml                     # 自动化版本日志提取规则
