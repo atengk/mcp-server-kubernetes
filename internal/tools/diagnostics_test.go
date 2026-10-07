@@ -16,7 +16,10 @@ import (
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
@@ -28,6 +31,13 @@ func setupTestToolsServer(t *testing.T, objects ...any) (*client.Client, func())
 	var initialObjects []corev1.Pod
 	var initialSecrets []corev1.Secret
 	var initialEvents []corev1.Event
+	var initialStatefulSets []appsv1.StatefulSet
+	var initialDaemonSets []appsv1.DaemonSet
+	var initialJobs []batchv1.Job
+	var initialCronJobs []batchv1.CronJob
+	var initialIngresses []networkingv1.Ingress
+	var initialPVCs []corev1.PersistentVolumeClaim
+	var initialPVs []corev1.PersistentVolume
 
 	for _, obj := range objects {
 		switch v := obj.(type) {
@@ -37,6 +47,20 @@ func setupTestToolsServer(t *testing.T, objects ...any) (*client.Client, func())
 			initialSecrets = append(initialSecrets, *v)
 		case *corev1.Event:
 			initialEvents = append(initialEvents, *v)
+		case *appsv1.StatefulSet:
+			initialStatefulSets = append(initialStatefulSets, *v)
+		case *appsv1.DaemonSet:
+			initialDaemonSets = append(initialDaemonSets, *v)
+		case *batchv1.Job:
+			initialJobs = append(initialJobs, *v)
+		case *batchv1.CronJob:
+			initialCronJobs = append(initialCronJobs, *v)
+		case *networkingv1.Ingress:
+			initialIngresses = append(initialIngresses, *v)
+		case *corev1.PersistentVolumeClaim:
+			initialPVCs = append(initialPVCs, *v)
+		case *corev1.PersistentVolume:
+			initialPVs = append(initialPVs, *v)
 		}
 	}
 
@@ -49,6 +73,27 @@ func setupTestToolsServer(t *testing.T, objects ...any) (*client.Client, func())
 	}
 	for _, e := range initialEvents {
 		_, _ = fakeClient.CoreV1().Events(e.Namespace).Create(context.Background(), &e, metav1.CreateOptions{})
+	}
+	for _, s := range initialStatefulSets {
+		_, _ = fakeClient.AppsV1().StatefulSets(s.Namespace).Create(context.Background(), &s, metav1.CreateOptions{})
+	}
+	for _, d := range initialDaemonSets {
+		_, _ = fakeClient.AppsV1().DaemonSets(d.Namespace).Create(context.Background(), &d, metav1.CreateOptions{})
+	}
+	for _, j := range initialJobs {
+		_, _ = fakeClient.BatchV1().Jobs(j.Namespace).Create(context.Background(), &j, metav1.CreateOptions{})
+	}
+	for _, c := range initialCronJobs {
+		_, _ = fakeClient.BatchV1().CronJobs(c.Namespace).Create(context.Background(), &c, metav1.CreateOptions{})
+	}
+	for _, i := range initialIngresses {
+		_, _ = fakeClient.NetworkingV1().Ingresses(i.Namespace).Create(context.Background(), &i, metav1.CreateOptions{})
+	}
+	for _, p := range initialPVCs {
+		_, _ = fakeClient.CoreV1().PersistentVolumeClaims(p.Namespace).Create(context.Background(), &p, metav1.CreateOptions{})
+	}
+	for _, pv := range initialPVs {
+		_, _ = fakeClient.CoreV1().PersistentVolumes().Create(context.Background(), &pv, metav1.CreateOptions{})
 	}
 
 	k8sMgr, err := k8s.NewClientManager(
@@ -423,3 +468,163 @@ func TestTools_GetEvents(t *testing.T) {
 		t.Errorf("空事件查询预期返回 \"[]\"，实际返回 %q", emptyText)
 	}
 }
+
+func TestTools_ExpandedResources_And_InputTrimming(t *testing.T) {
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "redis-cluster",
+			Namespace: "default",
+		},
+	}
+	ds := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "fluentd-agent",
+			Namespace: "kube-system",
+		},
+	}
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "data-migrate",
+			Namespace: "default",
+		},
+	}
+	cronjob := &batchv1.CronJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "nightly-backup",
+			Namespace: "default",
+		},
+	}
+	ing := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "web-gateway",
+			Namespace: "default",
+		},
+	}
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "data-pvc",
+			Namespace: "default",
+		},
+	}
+	pv := &corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "local-pv-01",
+		},
+	}
+
+	mcpClient, cleanup := setupTestToolsServer(t, sts, ds, job, cronjob, ing, pvc, pv)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// 1. 验证带首尾空格的别名 "  sts  " 查询 StatefulSet 列表
+	stsListRes, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "k8s_list_resources",
+			Arguments: map[string]any{
+				"kind":      "  sts  ",
+				"namespace": "  default  ",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("查询 StatefulSet 列表失败: %v", err)
+	}
+	stsListText := stsListRes.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(stsListText, "redis-cluster") || !strings.Contains(stsListText, "StatefulSet") {
+		t.Errorf("未查到 StatefulSet 或未注入 TypeMeta: %s", stsListText)
+	}
+
+	// 2. 验证别名 "ing" 获取 Ingress 单资源且带有空格名称
+	ingGetRes, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "k8s_get_resource",
+			Arguments: map[string]any{
+				"kind":      "ing",
+				"name":      "  web-gateway  ",
+				"namespace": "default",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("获取 Ingress 资源失败: %v", err)
+	}
+	ingGetText := ingGetRes.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(ingGetText, "web-gateway") || !strings.Contains(ingGetText, "Ingress") {
+		t.Errorf("未正确获取 Ingress: %s", ingGetText)
+	}
+
+	// 3. 验证 Job 单资源查询与别名
+	jobGetRes, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "k8s_get_resource",
+			Arguments: map[string]any{
+				"kind":      "job",
+				"name":      "data-migrate",
+				"namespace": "default",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("获取 Job 资源失败: %v", err)
+	}
+	jobGetText := jobGetRes.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(jobGetText, "data-migrate") || !strings.Contains(jobGetText, "Job") {
+		t.Errorf("未正确获取 Job: %s", jobGetText)
+	}
+
+	// 4. 验证 CronJob 别名 "cj" 列表查询
+	cjListRes, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "k8s_list_resources",
+			Arguments: map[string]any{
+				"kind":      "cj",
+				"namespace": "default",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("查询 CronJob 列表失败: %v", err)
+	}
+	cjListText := cjListRes.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(cjListText, "nightly-backup") {
+		t.Errorf("未查到 CronJob: %s", cjListText)
+	}
+
+	// 5. 验证 PVC 别名 "pvc" 与 PV 别名 "pv"
+	pvcListRes, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "k8s_list_resources",
+			Arguments: map[string]any{
+				"kind":      "pvc",
+				"namespace": "default",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("查询 PVC 列表失败: %v", err)
+	}
+	pvcListText := pvcListRes.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(pvcListText, "data-pvc") {
+		t.Errorf("未查到 PVC: %s", pvcListText)
+	}
+
+	pvGetRes, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "k8s_get_resource",
+			Arguments: map[string]any{
+				"kind": "pv",
+				"name": "local-pv-01",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("获取 PV 资源失败: %v", err)
+	}
+	pvGetText := pvGetRes.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(pvGetText, "local-pv-01") {
+		t.Errorf("未正确获取 PV: %s", pvGetText)
+	}
+}
+

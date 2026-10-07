@@ -92,9 +92,10 @@ func makeGetCustomResourceHandler(mgr *k8s.ClientManager) mcpserver.ToolHandlerF
 		if err != nil {
 			return mcp.NewToolResultError("缺少必填参数 name"), nil
 		}
+		name = strings.TrimSpace(name)
 
-		namespace := request.GetString("namespace", "")
-		contextName := request.GetString("context", "")
+		namespace := strings.TrimSpace(request.GetString("namespace", ""))
+		contextName := strings.TrimSpace(request.GetString("context", ""))
 
 		dynClient, err := mgr.GetDynamicClient(contextName)
 		if err != nil {
@@ -132,9 +133,9 @@ func makeListCustomResourcesHandler(mgr *k8s.ClientManager) mcpserver.ToolHandle
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		namespace := request.GetString("namespace", "")
-		labelSelector := request.GetString("labelSelector", "")
-		contextName := request.GetString("context", "")
+		namespace := strings.TrimSpace(request.GetString("namespace", ""))
+		labelSelector := strings.TrimSpace(request.GetString("labelSelector", ""))
+		contextName := strings.TrimSpace(request.GetString("context", ""))
 
 		limit := request.GetInt("limit", defaultListLimit)
 		if limit <= 0 || limit > maxListLimit {
@@ -207,6 +208,10 @@ func extractGVR(request mcp.CallToolRequest) (schema.GroupVersionResource, error
 	if err != nil {
 		return schema.GroupVersionResource{}, errors.New("缺少必填参数 resource")
 	}
+
+	group = strings.TrimSpace(group)
+	version = strings.TrimSpace(version)
+	resource = strings.TrimSpace(resource)
 
 	return schema.GroupVersionResource{
 		Group:    group,

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/atengk/mcp-server-kubernetes/internal/k8s"
 	"github.com/atengk/mcp-server-kubernetes/internal/pruning"
@@ -84,9 +85,11 @@ func makeGetResourceTreeHandler(mgr *k8s.ClientManager) mcpserver.ToolHandlerFun
 		if err != nil {
 			return mcp.NewToolResultError("缺少必填参数 name"), nil
 		}
+		kind = strings.TrimSpace(kind)
+		name = strings.TrimSpace(name)
 
-		namespace := request.GetString("namespace", "default")
-		contextName := request.GetString("context", "")
+		namespace := strings.TrimSpace(request.GetString("namespace", "default"))
+		contextName := strings.TrimSpace(request.GetString("context", ""))
 
 		client, err := mgr.GetClient(contextName)
 		if err != nil {

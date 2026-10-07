@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/atengk/mcp-server-kubernetes/internal/k8s"
 	"github.com/atengk/mcp-server-kubernetes/internal/pruning"
@@ -97,12 +98,14 @@ func makeAuthCanIHandler(mgr *k8s.ClientManager) mcpserver.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError("缺少必填参数 resource"), nil
 		}
+		verb = strings.TrimSpace(verb)
+		resource = strings.TrimSpace(resource)
 
-		namespace := request.GetString("namespace", "")
-		subresource := request.GetString("subresource", "")
-		group := request.GetString("group", "")
-		user := request.GetString("user", "")
-		contextName := request.GetString("context", "")
+		namespace := strings.TrimSpace(request.GetString("namespace", ""))
+		subresource := strings.TrimSpace(request.GetString("subresource", ""))
+		group := strings.TrimSpace(request.GetString("group", ""))
+		user := strings.TrimSpace(request.GetString("user", ""))
+		contextName := strings.TrimSpace(request.GetString("context", ""))
 
 		client, err := mgr.GetClient(contextName)
 		if err != nil {

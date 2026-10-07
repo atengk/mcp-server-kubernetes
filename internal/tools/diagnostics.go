@@ -156,10 +156,11 @@ func makeListResourcesHandler(mgr *k8s.ClientManager) mcpserver.ToolHandlerFunc 
 		if err != nil {
 			return mcp.NewToolResultError("缺少必填参数 kind"), nil
 		}
+		kind = strings.TrimSpace(kind)
 
-		namespace := request.GetString("namespace", "")
-		labelSelector := request.GetString("labelSelector", "")
-		contextName := request.GetString("context", "")
+		namespace := strings.TrimSpace(request.GetString("namespace", ""))
+		labelSelector := strings.TrimSpace(request.GetString("labelSelector", ""))
+		contextName := strings.TrimSpace(request.GetString("context", ""))
 
 		client, err := mgr.GetClient(contextName)
 		if err != nil {
@@ -210,9 +211,11 @@ func makeGetResourceHandler(mgr *k8s.ClientManager) mcpserver.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError("缺少必填参数 name"), nil
 		}
+		kind = strings.TrimSpace(kind)
+		name = strings.TrimSpace(name)
 
-		namespace := request.GetString("namespace", "default")
-		contextName := request.GetString("context", "")
+		namespace := strings.TrimSpace(request.GetString("namespace", "default"))
+		contextName := strings.TrimSpace(request.GetString("context", ""))
 
 		client, err := mgr.GetClient(contextName)
 		if err != nil {
@@ -252,9 +255,11 @@ func makeDescribeResourceHandler(mgr *k8s.ClientManager) mcpserver.ToolHandlerFu
 		if err != nil {
 			return mcp.NewToolResultError("缺少必填参数 name"), nil
 		}
+		kind = strings.TrimSpace(kind)
+		name = strings.TrimSpace(name)
 
-		namespace := request.GetString("namespace", "default")
-		contextName := request.GetString("context", "")
+		namespace := strings.TrimSpace(request.GetString("namespace", "default"))
+		contextName := strings.TrimSpace(request.GetString("context", ""))
 
 		client, err := mgr.GetClient(contextName)
 		if err != nil {
@@ -316,12 +321,13 @@ func makeGetPodLogsHandler(mgr *k8s.ClientManager, logGetter PodLogGetterFunc) m
 		if err != nil {
 			return mcp.NewToolResultError("缺少必填参数 name"), nil
 		}
+		name = strings.TrimSpace(name)
 
-		namespace := request.GetString("namespace", "default")
-		container := request.GetString("container", "")
+		namespace := strings.TrimSpace(request.GetString("namespace", "default"))
+		container := strings.TrimSpace(request.GetString("container", ""))
 		tail := request.GetInt("tail", safety.DefaultLogTail)
 		previous := request.GetBool("previous", false)
-		contextName := request.GetString("context", "")
+		contextName := strings.TrimSpace(request.GetString("context", ""))
 
 		client, err := mgr.GetClient(contextName)
 		if err != nil {
@@ -363,11 +369,11 @@ func makeGetPodLogsHandler(mgr *k8s.ClientManager, logGetter PodLogGetterFunc) m
 // @return mcpserver.ToolHandlerFunc 工具执行回调函数
 func makeGetEventsHandler(mgr *k8s.ClientManager) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		namespace := request.GetString("namespace", "")
-		objName := request.GetString("involvedObjectName", "")
-		objKind := request.GetString("involvedObjectKind", "")
-		eventType := request.GetString("type", "")
-		contextName := request.GetString("context", "")
+		namespace := strings.TrimSpace(request.GetString("namespace", ""))
+		objName := strings.TrimSpace(request.GetString("involvedObjectName", ""))
+		objKind := strings.TrimSpace(request.GetString("involvedObjectKind", ""))
+		eventType := strings.TrimSpace(request.GetString("type", ""))
+		contextName := strings.TrimSpace(request.GetString("context", ""))
 
 		client, err := mgr.GetClient(contextName)
 		if err != nil {
@@ -420,16 +426,31 @@ func makeGetEventsHandler(mgr *k8s.ClientManager) mcpserver.ToolHandlerFunc {
 
 // canonicalKind 将用户输入的资源种类别名与缩写统一归一化为标准的 Kubernetes PascalCase Kind。
 //
-// @param kind 用户传入的资源类型名称（如 pods, po, deploy, svc）
-// @return string 标准的 Kubernetes Kind（如 Pod, Deployment, Service）
+// @param kind 用户传入的资源类型名称（如 pods, po, deploy, svc, sts, ds, cj, ing, pvc, pv）
+// @return string 标准的 Kubernetes Kind（如 Pod, Deployment, Service, StatefulSet 等）
 func canonicalKind(kind string) string {
-	switch strings.ToLower(kind) {
+	trimmed := strings.TrimSpace(kind)
+	switch strings.ToLower(trimmed) {
 	case "pods", "pod", "po":
 		return "Pod"
 	case "services", "service", "svc":
 		return "Service"
 	case "deployments", "deployment", "deploy":
 		return "Deployment"
+	case "statefulsets", "statefulset", "sts":
+		return "StatefulSet"
+	case "daemonsets", "daemonset", "ds":
+		return "DaemonSet"
+	case "jobs", "job":
+		return "Job"
+	case "cronjobs", "cronjob", "cj":
+		return "CronJob"
+	case "ingresses", "ingress", "ing":
+		return "Ingress"
+	case "persistentvolumeclaims", "persistentvolumeclaim", "pvc":
+		return "PersistentVolumeClaim"
+	case "persistentvolumes", "persistentvolume", "pv":
+		return "PersistentVolume"
 	case "configmaps", "configmap", "cm":
 		return "ConfigMap"
 	case "secrets", "secret":
@@ -441,7 +462,7 @@ func canonicalKind(kind string) string {
 	case "events", "event", "ev":
 		return "Event"
 	default:
-		return kind
+		return trimmed
 	}
 }
 
@@ -487,6 +508,76 @@ func queryResourceList(ctx context.Context, client kubernetes.Interface, kind, n
 		for _, item := range list.Items {
 			item.Kind = "Deployment"
 			item.APIVersion = "apps/v1"
+			res = append(res, item)
+		}
+	case "StatefulSet":
+		list, err := client.AppsV1().StatefulSets(namespace).List(ctx, opts)
+		if err != nil {
+			return []any{}, err
+		}
+		for _, item := range list.Items {
+			item.Kind = "StatefulSet"
+			item.APIVersion = "apps/v1"
+			res = append(res, item)
+		}
+	case "DaemonSet":
+		list, err := client.AppsV1().DaemonSets(namespace).List(ctx, opts)
+		if err != nil {
+			return []any{}, err
+		}
+		for _, item := range list.Items {
+			item.Kind = "DaemonSet"
+			item.APIVersion = "apps/v1"
+			res = append(res, item)
+		}
+	case "Job":
+		list, err := client.BatchV1().Jobs(namespace).List(ctx, opts)
+		if err != nil {
+			return []any{}, err
+		}
+		for _, item := range list.Items {
+			item.Kind = "Job"
+			item.APIVersion = "batch/v1"
+			res = append(res, item)
+		}
+	case "CronJob":
+		list, err := client.BatchV1().CronJobs(namespace).List(ctx, opts)
+		if err != nil {
+			return []any{}, err
+		}
+		for _, item := range list.Items {
+			item.Kind = "CronJob"
+			item.APIVersion = "batch/v1"
+			res = append(res, item)
+		}
+	case "Ingress":
+		list, err := client.NetworkingV1().Ingresses(namespace).List(ctx, opts)
+		if err != nil {
+			return []any{}, err
+		}
+		for _, item := range list.Items {
+			item.Kind = "Ingress"
+			item.APIVersion = "networking.k8s.io/v1"
+			res = append(res, item)
+		}
+	case "PersistentVolumeClaim":
+		list, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, opts)
+		if err != nil {
+			return []any{}, err
+		}
+		for _, item := range list.Items {
+			item.Kind = "PersistentVolumeClaim"
+			item.APIVersion = "v1"
+			res = append(res, item)
+		}
+	case "PersistentVolume":
+		list, err := client.CoreV1().PersistentVolumes().List(ctx, opts)
+		if err != nil {
+			return []any{}, err
+		}
+		for _, item := range list.Items {
+			item.Kind = "PersistentVolume"
+			item.APIVersion = "v1"
 			res = append(res, item)
 		}
 	case "ConfigMap":
@@ -540,7 +631,7 @@ func queryResourceList(ctx context.Context, client kubernetes.Interface, kind, n
 			res = append(res, item)
 		}
 	default:
-		return []any{}, fmt.Errorf("不支持的资源类型: %q (支持 pods, services, deployments, configmaps, secrets, nodes, namespaces, events)", kind)
+		return []any{}, fmt.Errorf("不支持的资源类型: %q (支持 pods, services, deployments, statefulsets, daemonsets, jobs, cronjobs, ingresses, persistentvolumeclaims, persistentvolumes, configmaps, secrets, nodes, namespaces, events)", kind)
 	}
 
 	if len(res) == 0 {
@@ -586,6 +677,62 @@ func querySingleResource(ctx context.Context, client kubernetes.Interface, kind,
 		deploy.Kind = "Deployment"
 		deploy.APIVersion = "apps/v1"
 		return deploy, nil
+	case "StatefulSet":
+		sts, err := client.AppsV1().StatefulSets(namespace).Get(ctx, name, opts)
+		if err != nil {
+			return nil, err
+		}
+		sts.Kind = "StatefulSet"
+		sts.APIVersion = "apps/v1"
+		return sts, nil
+	case "DaemonSet":
+		ds, err := client.AppsV1().DaemonSets(namespace).Get(ctx, name, opts)
+		if err != nil {
+			return nil, err
+		}
+		ds.Kind = "DaemonSet"
+		ds.APIVersion = "apps/v1"
+		return ds, nil
+	case "Job":
+		job, err := client.BatchV1().Jobs(namespace).Get(ctx, name, opts)
+		if err != nil {
+			return nil, err
+		}
+		job.Kind = "Job"
+		job.APIVersion = "batch/v1"
+		return job, nil
+	case "CronJob":
+		cj, err := client.BatchV1().CronJobs(namespace).Get(ctx, name, opts)
+		if err != nil {
+			return nil, err
+		}
+		cj.Kind = "CronJob"
+		cj.APIVersion = "batch/v1"
+		return cj, nil
+	case "Ingress":
+		ing, err := client.NetworkingV1().Ingresses(namespace).Get(ctx, name, opts)
+		if err != nil {
+			return nil, err
+		}
+		ing.Kind = "Ingress"
+		ing.APIVersion = "networking.k8s.io/v1"
+		return ing, nil
+	case "PersistentVolumeClaim":
+		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, name, opts)
+		if err != nil {
+			return nil, err
+		}
+		pvc.Kind = "PersistentVolumeClaim"
+		pvc.APIVersion = "v1"
+		return pvc, nil
+	case "PersistentVolume":
+		pv, err := client.CoreV1().PersistentVolumes().Get(ctx, name, opts)
+		if err != nil {
+			return nil, err
+		}
+		pv.Kind = "PersistentVolume"
+		pv.APIVersion = "v1"
+		return pv, nil
 	case "ConfigMap":
 		cm, err := client.CoreV1().ConfigMaps(namespace).Get(ctx, name, opts)
 		if err != nil {

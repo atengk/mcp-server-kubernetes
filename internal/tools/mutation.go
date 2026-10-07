@@ -106,7 +106,7 @@ func makeDiffResourceHandler(mgr *k8s.ClientManager) mcpserver.ToolHandlerFunc {
 			return mcp.NewToolResultError(fmt.Sprintf("解析 manifest 失败: %v", err)), nil
 		}
 
-		namespace := request.GetString("namespace", "")
+		namespace := strings.TrimSpace(request.GetString("namespace", ""))
 		if namespace == "" {
 			namespace = u.GetNamespace()
 		}
@@ -115,12 +115,13 @@ func makeDiffResourceHandler(mgr *k8s.ClientManager) mcpserver.ToolHandlerFunc {
 		}
 		u.SetNamespace(namespace)
 
-		name := u.GetName()
+		name := strings.TrimSpace(u.GetName())
 		if name == "" {
 			return mcp.NewToolResultError("manifest 元数据缺少 metadata.name"), nil
 		}
+		u.SetName(name)
 
-		contextName := request.GetString("context", "")
+		contextName := strings.TrimSpace(request.GetString("context", ""))
 		dynClient, err := mgr.GetDynamicClient(contextName)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("获取 Dynamic 客户端失败: %v", err)), nil
@@ -200,7 +201,7 @@ func makeApplyResourceHandler(mgr *k8s.ClientManager) mcpserver.ToolHandlerFunc 
 			return mcp.NewToolResultError(fmt.Sprintf("解析 manifest 失败: %v", err)), nil
 		}
 
-		namespace := request.GetString("namespace", "")
+		namespace := strings.TrimSpace(request.GetString("namespace", ""))
 		if namespace == "" {
 			namespace = u.GetNamespace()
 		}
@@ -209,12 +210,13 @@ func makeApplyResourceHandler(mgr *k8s.ClientManager) mcpserver.ToolHandlerFunc 
 		}
 		u.SetNamespace(namespace)
 
-		name := u.GetName()
+		name := strings.TrimSpace(u.GetName())
 		if name == "" {
 			return mcp.NewToolResultError("manifest 缺少 metadata.name"), nil
 		}
+		u.SetName(name)
 
-		contextName := request.GetString("context", "")
+		contextName := strings.TrimSpace(request.GetString("context", ""))
 		dynClient, err := mgr.GetDynamicClient(contextName)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("获取 Dynamic 客户端失败: %v", err)), nil
@@ -267,13 +269,17 @@ func makeScaleResourceHandler(mgr *k8s.ClientManager) mcpserver.ToolHandlerFunc 
 		if err != nil {
 			return mcp.NewToolResultError("缺少必填参数 namespace"), nil
 		}
+		kind = strings.TrimSpace(kind)
+		name = strings.TrimSpace(name)
+		namespace = strings.TrimSpace(namespace)
+
 		replicasInt, err := request.RequireInt("replicas")
 		if err != nil || replicasInt < 0 {
 			return mcp.NewToolResultError("缺少有效的 replicas 副本数 (必须为非负整数)"), nil
 		}
 
 		replicas := int32(replicasInt)
-		contextName := request.GetString("context", "")
+		contextName := strings.TrimSpace(request.GetString("context", ""))
 
 		client, err := mgr.GetClient(contextName)
 		if err != nil {
@@ -330,9 +336,11 @@ func makeDeleteResourceHandler(mgr *k8s.ClientManager) mcpserver.ToolHandlerFunc
 		if err != nil {
 			return mcp.NewToolResultError("缺少必填参数 name"), nil
 		}
+		kind = strings.TrimSpace(kind)
+		name = strings.TrimSpace(name)
 
-		namespace := request.GetString("namespace", "")
-		contextName := request.GetString("context", "")
+		namespace := strings.TrimSpace(request.GetString("namespace", ""))
+		contextName := strings.TrimSpace(request.GetString("context", ""))
 
 		var gracePeriod *int64
 		if gp := request.GetInt("grace_period_seconds", -1); gp >= 0 {

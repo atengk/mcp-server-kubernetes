@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/atengk/mcp-server-kubernetes/internal/k8s"
@@ -131,6 +132,8 @@ func makeExecCommandHandler(mgr *k8s.ClientManager, runner ExecRunnerFunc) mcpse
 		if err != nil {
 			return mcp.NewToolResultError("缺少必填参数 namespace"), nil
 		}
+		podName = strings.TrimSpace(podName)
+		namespace = strings.TrimSpace(namespace)
 
 		commandSlice, err := extractCommandSlice(request)
 		if err != nil {
@@ -140,8 +143,8 @@ func makeExecCommandHandler(mgr *k8s.ClientManager, runner ExecRunnerFunc) mcpse
 			return mcp.NewToolResultError("待执行的命令切片不可为空"), nil
 		}
 
-		container := request.GetString("container", "")
-		contextName := request.GetString("context", "")
+		container := strings.TrimSpace(request.GetString("container", ""))
+		contextName := strings.TrimSpace(request.GetString("context", ""))
 
 		client, err := mgr.GetClient(contextName)
 		if err != nil {
