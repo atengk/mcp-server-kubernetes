@@ -5,30 +5,100 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: '手动指定发布的 Tag (如 v0.1.0)'
+        required: false
 
+# 避免针对同一个 Tag 并发重复触发发版
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# 全局默认只读权限，具体写入权限下沉至各 Job 严格限定
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  github-release:
-    name: 自动发版与产物挂载
+  # ============================================================================
+  # Job 0: 统一解析并输出版本元数据 (Tag SSOT 唯一定义源)
+  # ============================================================================
+  resolve-version:
+    name: 解析版本元数据 (Tag SSOT)
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      raw: ${{ steps.version.outputs.raw }}
+      build_date: ${{ steps.version.outputs.build_date }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
 
     steps:
-      - name: 检出源码
+      - name: 提取版本号与构建时间
+        id: version
+        run: |
+          TAG_NAME="${{ github.event.inputs.tag || github.ref_name }}"
+          RAW_VERSION="${TAG_NAME#v}"
+          echo "tag=${TAG_NAME}" >> $GITHUB_OUTPUT
+          echo "raw=${RAW_VERSION}" >> $GITHUB_OUTPUT
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+          if [[ "${TAG_NAME}" == *"-"* ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+  # ============================================================================
+  # Job 1: 原生二进制多架构编译、打包、校验和计算与 GitHub Release 发布
+  # ============================================================================
+  github-release:
+    name: 构建全平台原生二进制并发布 GitHub Release
+    needs: resolve-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 检出源码 (全量检出供 Git 历史与标签比对)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ------------------------------------------------------------------------
-      # 打包构建插槽（如有打包产物需上传至 Release 附件，在此处编译并计算校验和）
-      # ------------------------------------------------------------------------
-      # - name: 编译打包产物与计算安全校验和示例 (SHA-256)
-      #   run: |
-      #     mkdir -p dist
-      #     tar -czf dist/release-assets.tar.gz README.md LICENSE
-      #     # 自动为 dist 目录下所有文件生成 SHA-256 校验清单（排除 checksums 自身，防自污染报错）
-      #     cd dist && sha256sum $(ls -1 | grep -v '^checksums\.txt$') > checksums.txt
+      - name: 设置 Go 环境
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: 交叉编译 5 大主流平台原生二进制
+        run: |
+          bash scripts/build-cross-platforms.sh \
+            "${{ needs.resolve-version.outputs.tag }}" \
+            "${{ github.sha }}" \
+            "${{ needs.resolve-version.outputs.build_date }}" \
+            "dist"
+
+      - name: 打包 Release 压缩包并计算 SHA-256 校验和
+        run: |
+          mkdir -p release-assets
+          VERSION="${{ needs.resolve-version.outputs.raw }}"
+
+          # 打包 Unix 平台产物 (.tar.gz)
+          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
+            pkg_name="mcp-server-kubernetes_${VERSION}_${target}.tar.gz"
+            tar -czf "release-assets/${pkg_name}" \
+              -C "dist/mcp-server-kubernetes-${target}" mcp-server-kubernetes \
+              -C "${GITHUB_WORKSPACE}" README.md LICENSE
+          done
+
+          # 打包 Windows 平台产物 (.zip)
+          zip -j "release-assets/mcp-server-kubernetes_${VERSION}_win32-x64.zip" \
+            "dist/mcp-server-kubernetes-win32-x64/mcp-server-kubernetes.exe" \
+            README.md LICENSE
+
+          # 自动计算全部 Release 压缩包的 SHA-256 校验清单 (避免自包含)
+          cd release-assets
+          sha256sum mcp-server-kubernetes_* > checksums.txt
+          cat checksums.txt
 
       - name: 生成发布日志 (基于 Commit 与 PR)
         uses: orhun/git-cliff-action@v4
@@ -39,201 +109,132 @@ jobs:
         env:
           OUTPUT: CHANGELOG_RELEASE.md
 
-      - name: 创建 GitHub Release 并挂载发布内容
+      - name: 创建 GitHub Release 并挂载发布产物
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.resolve-version.outputs.tag }}
           body: ${{ steps.git-cliff.outputs.content }}
           draft: false
-          # 自动识别语义化版本连字符（如 v1.0.0-beta.1 / v1.0.0-rc.1 自动打上 Pre-release 标签）
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          # 如需随 Release 挂载可供直接下载的安装包/二进制文件与校验清单，解除下方注释并配置产物路径
-          # files: |
-          #   dist/*.tar.gz
-          #   dist/checksums.txt
-          #   target/*.jar
+          prerelease: ${{ needs.resolve-version.outputs.is_prerelease == 'true' }}
+          files: |
+            release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 归档构建好的二进制中间件供后续 Job 复用
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-dist-binaries
+          path: dist/
+          retention-days: 1
 
-# ==============================================================================
-# 官方中心仓库发布扩展配置参考（按需复制到下方新增 Job 或解除注释使用）
-# ==============================================================================
-#
-# 1. 发布到 npmjs (前端 / Node)
-# ------------------------------------------------------------------------------
-# publish-npm:
-#   name: 发布至 npm
-#   needs: github-release
-#   runs-on: ubuntu-latest
-#   permissions:
-#     contents: read
-#     id-token: write # 现代 npm Trusted Publishing (OIDC) 所需权限
-#   steps:
-#     - uses: actions/checkout@v4
-#     - uses: actions/setup-node@v4
-#       with:
-#         node-version: 20
-#         registry-url: 'https://registry.npmjs.org'
-#     - run: pnpm install && pnpm build
-#     - run: npm publish --access public
-#       env:
-#         NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-#
-# 2. 发布到 Maven Central (Java / 后端)
-# ------------------------------------------------------------------------------
-# publish-maven:
-#   name: 发布至 Maven Central
-#   needs: github-release
-#   runs-on: ubuntu-latest
-#   steps:
-#     - uses: actions/checkout@v4
-#     - uses: actions/setup-java@v4
-#       with:
-#         distribution: 'temurin'
-#         java-version: '21'
-#         server-id: ossrh
-#         server-username: MAVEN_USERNAME
-#         server-password: MAVEN_PASSWORD
-#         gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
-#         gpg-passphrase: MAVEN_GPG_PASSPHRASE
-#     - run: mvn clean deploy -DskipTests -B
-#       env:
-#         MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-#         MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
-#         MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
-#
-# 3. 发布到 PyPI (Python)
-# ------------------------------------------------------------------------------
-# publish-pypi:
-#   name: 发布至 PyPI
-#   needs: github-release
-#   runs-on: ubuntu-latest
-#   permissions:
-#     id-token: write # PyPI Trusted Publisher (OIDC) 无需配置固定 Token
-#   steps:
-#     - uses: actions/checkout@v4
-#     - uses: actions/setup-python@v5
-#       with:
-#         python-version: '3.11'
-#     - run: pip install build && python -m build
-#     - uses: pypa/gh-action-pypi-publish@release/v1
-#
-# 4. 构建并发布 Docker 镜像 (GHCR / Docker Hub 多架构镜像)
-# ------------------------------------------------------------------------------
-# publish-docker:
-#   name: 构建并推送 Docker 镜像
-#   needs: github-release
-#   runs-on: ubuntu-latest
-#   permissions:
-#     contents: read
-#     packages: write # 推送至 GitHub Container Registry (ghcr.io) 所需权限
-#   steps:
-#     - name: 检出代码 (全量检出供 SemVer 版本比对)
-#       uses: actions/checkout@v4
-#       with:
-#         fetch-depth: 0
-#
-#     - name: 设置 QEMU 模拟器（多架构支持）
-#       uses: docker/setup-qemu-action@v3
-#
-#     - name: 设置 Docker Buildx
-#       uses: docker/setup-buildx-action@v3
-#
-#     # 方式 A：登录 GitHub Container Registry (ghcr.io) - 推荐！零配置，免额外 Secret
-#     - name: 登录 GHCR
-#       uses: docker/login-action@v3
-#       with:
-#         registry: ghcr.io
-#         username: ${{ github.actor }}
-#         password: ${{ secrets.GITHUB_TOKEN }}
-#
-#     # 方式 B：登录 Docker Hub（如需推送至 Docker Hub，解除此步注释）
-#     # - name: 登录 Docker Hub
-#     #   uses: docker/login-action@v3
-#     #   with:
-#     #     username: ${{ secrets.DOCKERHUB_USERNAME }}
-#     #     password: ${{ secrets.DOCKERHUB_TOKEN }}
-#
-#     - name: 提取 Docker 镜像元数据 (自动计算 Tag 与 Labels)
-#       id: meta
-#       uses: docker/metadata-action@v5
-#       with:
-#         # 镜像目标：默认推送至 GHCR（免配置）；若需推送到 Docker Hub，在下方追加一行：your-username/your-image
-#         images: |
-#           ghcr.io/${{ github.repository }}
-#         tags: |
-#           type=semver,pattern={{version}}
-#           type=semver,pattern={{major}}.{{minor}}
-#           type=semver,pattern={{major}}
-#
-#     - name: 构建并推送多架构镜像 (amd64 / arm64)
-#       uses: docker/build-push-action@v5
-#       with:
-#         context: .
-#         push: true
-#         platforms: linux/amd64,linux/arm64
-#         tags: ${{ steps.meta.outputs.tags }}
-#         labels: ${{ steps.meta.outputs.labels }}
-#         provenance: false # 避免生成 unknown/unknown 幽灵标签，兼容老旧 Docker 与私有 Registry 环境
-#         sbom: false       # 避免生成附加 SBOM attestation，保持产物纯净最大化兼容
-#         cache-from: type=gha
-#         cache-to: type=gha,mode=max
-#
-# 5. 构建并分发 Go 语言跨平台二进制 CLI 工具 (GoReleaser)
-# ------------------------------------------------------------------------------
-# publish-go-binaries:
-#   name: 跨平台二进制构建 (GoReleaser)
-#   needs: github-release
-#   runs-on: ubuntu-latest
-#   permissions:
-#     contents: write # 上传二进制附件至 Release 所需权限
-#   steps:
-#     - name: 检出代码
-#       uses: actions/checkout@v4
-#       with:
-#         fetch-depth: 0
-#     - name: 安装 Go
-#       uses: actions/setup-go@v5
-#       with:
-#         go-version: '1.22'
-#     - name: 运行 GoReleaser (自动交叉编译全平台二进制与 Checksums)
-#       uses: goreleaser/goreleaser-action@v5
-#       with:
-#         distribution: goreleaser
-#         version: latest
-#         args: release --clean
-#       env:
-#         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#
-# 6. 自动部署前端应用或静态文档至 GitHub Pages
-# ------------------------------------------------------------------------------
-# deploy-pages:
-#   name: 部署至 GitHub Pages
-#   needs: github-release
-#   runs-on: ubuntu-latest
-#   permissions:
-#     contents: read
-#     pages: write      # 部署 GitHub Pages 所需权限
-#     id-token: write   # 身份校验所需权限
-#   environment:
-#     name: github-pages
-#     url: ${{ steps.deployment.outputs.page_url }}
-#   steps:
-#     - name: 检出代码
-#       uses: actions/checkout@v4
-#     - name: 安装 Node.js
-#       uses: actions/setup-node@v4
-#       with:
-#         node-version: 20
-#     - name: 构建前端产物
-#       run: |
-#         pnpm install
-#         pnpm build # 确保产物输出至 dist 目录
-#     - name: 上传 Pages 产物
-#       uses: actions/upload-pages-artifact@v3
-#       with:
-#         path: 'dist'
-#     - name: 部署至 GitHub Pages
-#       id: deployment
-#       uses: actions/deploy-pages@v4
+  # ============================================================================
+  # Job 2: 动态组装并按序发布 npm 平台子包与主包
+  # ============================================================================
+  publish-npm:
+    name: 发布 npm 平台子包与主包
+    needs: [resolve-version, github-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js 环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: 下载前置编译的原生二进制产物
+        uses: actions/download-artifact@v4
+        with:
+          name: compiled-dist-binaries
+          path: dist/
+
+      - name: 动态构建 5 大平台架构子包并同步主包配置
+        run: |
+          node npm/scripts/build-packages.js \
+            --version "${{ needs.resolve-version.outputs.raw }}" \
+            --out-dir npm/packages \
+            --bin-dir dist \
+            --sync-main
+
+      - name: 发布平台子包与主包至 npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "[警告] 未配置 NPM_TOKEN 密钥，跳过 npm 发布流程。"
+            exit 0
+          fi
+
+          # 1. 优先按序发布 5 个平台架构子包
+          targets=("darwin-arm64" "darwin-x64" "linux-x64" "linux-arm64" "win32-x64")
+          for target in "${targets[@]}"; do
+            echo "==> 正在发布平台子包: @atengk/mcp-server-kubernetes-${target}"
+            npm publish "npm/packages/${target}" --access public
+          done
+
+          # 2. 最后发布主入口包，确保客户端安装主包时可选依赖已在 npm 就绪
+          echo "==> 正在发布主包: @atengk/mcp-server-kubernetes"
+          npm publish npm --access public
+
+  # ============================================================================
+  # Job 3: 构建多架构 Docker 镜像并推送至 GitHub Packages (GHCR)
+  # ============================================================================
+  publish-docker:
+    name: 构建并推送多架构 Docker 镜像 (GHCR)
+    needs: [resolve-version, github-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 设置 QEMU 模拟器 (多架构支持)
+        uses: docker/setup-qemu-action@v3
+
+      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GitHub Container Registry (ghcr.io)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 提取 Docker 镜像元数据
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ needs.resolve-version.outputs.is_prerelease == 'false' }}
+
+      - name: 构建并推送多架构镜像 (linux/amd64, linux/arm64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.resolve-version.outputs.tag }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ needs.resolve-version.outputs.build_date }}
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -41,63 +41,37 @@ jobs:
             revert
 
   build-and-test:
-    name: 构建与测试
+    name: 跨技术栈构建测试与交叉编译演练
     runs-on: ubuntu-latest
 
     steps:
-      - name: 检出代码
+      - name: 检出源码
         uses: actions/checkout@v4
 
-      # ========================================================================
-      # 业务构建与测试插槽（根据实际技术栈解除对应注释并按需微调）
-      # ========================================================================
+      - name: 设置 Go 环境
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
 
-      # --- [Node.js / 前端项目插槽] ---
-      # - name: 安装 Node.js
-      #   uses: actions/setup-node@v4
-      #   with:
-      #     node-version: 20
-      #     cache: 'pnpm' # or 'npm', 'yarn'
-      # - name: 安装依赖与测试
-      #   run: |
-      #     pnpm install --frozen-lockfile
-      #     pnpm lint
-      #     pnpm test
-      #     pnpm build
+      - name: 设置 Node.js 环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-      # --- [Java / 后端项目插槽] ---
-      # - name: 设置 JDK
-      #   uses: actions/setup-java@v4
-      #   with:
-      #     distribution: 'temurin'
-      #     java-version: '21'
-      #     cache: 'maven' # or 'gradle'
-      # - name: Maven 构建与单元测试
-      #   run: mvn clean verify -B
+      - name: Go 代码静态合规检查 (go vet)
+        run: go vet ./...
 
-      # --- [Go / 工具项目插槽] ---
-      # - name: 安装 Go
-      #   uses: actions/setup-go@v5
-      #   with:
-      #     go-version: '1.22'
-      #     cache: true
-      # - name: Go 测试与构建
-      #   run: |
-      #     go test -v ./...
-      #     go build -v ./...
+      - name: Go 单元测试与竞态检测
+        run: go test -v -race ./...
 
-      # --- [Python / 工具项目插槽] ---
-      # - name: 设置 Python
-      #   uses: actions/setup-python@v5
-      #   with:
-      #     python-version: '3.11'
-      # - name: 安装依赖并测试
-      #   run: |
-      #     python -m pip install --upgrade pip
-      #     pip install -r requirements.txt
-      #     pytest
-
-      # 默认占位验证（保障初始空仓库流水线正常绿灯通过）
-      - name: 验证仓库结构完整性
+      - name: Node.js 包装层单元测试与合规性检查
         run: |
-          echo "CI 基础检查通过。请根据当前技术栈在 .github/workflows/ci.yml 中激活对应的构建测试插槽。"
+          cd npm
+          npm test
+
+      - name: 5 大平台架构交叉编译演练 (Dry-Run Cross Compilation)
+        run: bash scripts/build-cross-platforms.sh "ci-test" "${{ github.sha }}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "dist"
+
+      - name: 平台子包生成与动态组装演练
+        run: node npm/scripts/build-packages.js --version 0.0.0-ci --out-dir dist/npm-packages --bin-dir dist

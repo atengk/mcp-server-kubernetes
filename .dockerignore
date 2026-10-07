@@ -47,6 +47,8 @@ env/
 venv/
 .venv/
 
-# Go / 可执行文件
+# Go / 可执行文件与构建输出
 *.exe
 /bin
+dist
+npm/packages
