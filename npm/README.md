@@ -51,6 +51,20 @@ npx @atengk/mcp-server-kubernetes --allow-write --allow-exec
 
 ---
 
+## 原生支持的核心资源与常用别名
+
+无需繁琐填写 GVR，即可直接使用全称或缩写别名进行 List / Get / Describe 排障查询：
+
+- **工作负载**：`Deployment` (`deploy`), `StatefulSet` (`sts`), `DaemonSet` (`ds`)
+- **批处理**：`Job` (`job`), `CronJob` (`cj`)
+- **核心计算与网络**：`Pod` (`po`), `Service` (`svc`), `Ingress` (`ing`)
+- **持久存储**：`PersistentVolumeClaim` (`pvc`), `PersistentVolume` (`pv`)
+- **配置与安全**：`ConfigMap` (`cm`), `Secret` (强制掩码脱敏)
+- **集群元数据**：`Node` (`no`), `Namespace` (`ns`), `Event` (`ev`)
+- **第三方扩展**：所有自定义资源均可通过 `k8s_list_custom_resources` 动态反射支持。
+
+---
+
 ## 在 MCP 客户端中配置
 
 ### Claude Desktop

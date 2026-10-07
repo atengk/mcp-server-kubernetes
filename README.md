@@ -146,9 +146,23 @@ docker run -d --name mcp-k8s \
 #### 基础诊断与查询（默认开启）
 - `k8s_list_resources`：按命名空间或全集群查询资源列表（支持标签选择器过滤，内置 Token Guard 截断防护）；
 - `k8s_get_resource`：获取指定资源详情（输出自动剥离 managedFields，Secret 自动脱敏）；
-- `k8s_describe_resource`：获取类似 `kubectl describe` 的易读诊断详情；
+- `k8s_describe_resource`：获取类似 `kubectl describe` 的易读聚合诊断详情（包含关联排障事件）；
 - `k8s_get_pod_logs`：获取容器日志（默认 tail 100 行，上限 1000 行，支持 `--previous`）；
 - `k8s_get_events`：检索指定命名空间或关联对象的集群事件。
+
+##### 原生支持核心资源与常用别名对照表 (免配置 GVR 直查)
+
+| 资源类别 (Category) | 标准资源类型 (Kind) | 常用缩写与别名 (Aliases) | 作用域 (Scope) |
+| :--- | :--- | :--- | :--- |
+| **工作负载 (apps)** | `Deployment`, `StatefulSet`, `DaemonSet` | `deploy`, `sts`, `ds` | 命名空间 |
+| **批处理任务 (batch)** | `Job`, `CronJob` | `job`, `cj` | 命名空间 |
+| **计算与服务 (core)** | `Pod`, `Service` | `po`, `svc` | 命名空间 |
+| **网络路由 (networking)**| `Ingress` | `ing` | 命名空间 |
+| **持久存储 (core)** | `PersistentVolumeClaim`, `PersistentVolume` | `pvc`, `pv` | 命名空间 / 集群级 |
+| **配置与凭据 (core)** | `ConfigMap`, `Secret` (强制脱敏) | `cm`, `secret` | 命名空间 |
+| **集群元数据与事件** | `Node`, `Namespace`, `Event` | `no`, `ns`, `ev` | 集群级 / 命名空间 |
+
+> 💡 **提示**：上述 15 类高频标准资源支持直接通过全称或短别名进行 List/Get/Describe 查询并自动补齐 TypeMeta；对于集群内注册的第三方自定义资源（CRD），请使用下方的 `k8s_list_custom_resources` / `k8s_get_custom_resource` 动态反射工具。
 
 #### 高级排障与拓扑下钻（默认开启）
 - `k8s_get_resource_tree`：基于所有权与选择器一键下钻 Deployment/Service 级联下属 Pod/RS 拓扑树；

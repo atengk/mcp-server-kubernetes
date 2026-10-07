@@ -87,3 +87,11 @@ _Avoid_: Manual Bump, Hardcoded Version
 **In-Cluster Manifest**:
 用于在 Kubernetes 集群内以受管 ServiceAccount 凭据部署常驻 SSE 模式 MCP Server 的标准化声明式资源清单。
 _Avoid_: Pod Script, Runbook
+
+**Core Resource Dispatch**:
+针对 Kubernetes 企业级高频核心资源与短别名（如 Pod、Deployment、StatefulSet、Ingress 等 15 类）提供的原生强类型直查路由机制。
+_Avoid_: Hardcoded Route, Resource Switcher
+
+**Input Sanitization**:
+在工具执行入口处对大语言模型传入的参数进行防御性前后空格与换行清洗，防御格式抖动引发的无效调用。
+_Avoid_: String Cleansing, Param Filter
