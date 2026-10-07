@@ -1,0 +1,164 @@
+# ==============================================================================
+# MCP Server Kubernetes - 企业级集群内常驻 SSE 服务部署清单
+# 包含独立的 ServiceAccount、只读 RBAC 权限绑定、受限安全上下文与健康探测
+# ==============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mcp-system
+  labels:
+    app.kubernetes.io/name: mcp-server-kubernetes
+    app.kubernetes.io/part-of: mcp-system
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mcp-server-kubernetes
+  namespace: mcp-system
+  labels:
+    app.kubernetes.io/name: mcp-server-kubernetes
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mcp-server-kubernetes-reader
+  labels:
+    app.kubernetes.io/name: mcp-server-kubernetes
+rules:
+  # 1. 核心只读工作负载与基础设施资源检索
+  - apiGroups: [""]
+    resources:
+      - namespaces
+      - nodes
+      - pods
+      - pods/log
+      - pods/status
+      - services
+      - endpoints
+      - configmaps
+      - persistentvolumeclaims
+      - persistentvolumes
+      - events
+    verbs: ["get", "list", "watch"]
+
+  # 2. Secret 资源只读检索 (服务端强制掩码脱敏为 [REDACTED])
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+
+  # 3. Apps 核心工作负载控制器
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - replicasets
+      - statefulsets
+      - daemonsets
+    verbs: ["get", "list", "watch"]
+
+  # 4. 批处理与定时任务
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "watch"]
+
+  # 5. 权限自检探针 (支持 k8s_auth_can_i)
+  - apiGroups: ["authorization.k8s.io"]
+    resources:
+      - selfsubjectaccessreviews
+      - subjectaccessreviews
+    verbs: ["create"]
+
+  # 6. 自定义扩展资源 (CRD) 与集群 API 发现
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mcp-server-kubernetes-reader-binding
+  labels:
+    app.kubernetes.io/name: mcp-server-kubernetes
+subjects:
+  - kind: ServiceAccount
+    name: mcp-server-kubernetes
+    namespace: mcp-system
+roleRef:
+  kind: ClusterRole
+  name: mcp-server-kubernetes-reader
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-server-kubernetes
+  namespace: mcp-system
+  labels:
+    app.kubernetes.io/name: mcp-server-kubernetes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-server-kubernetes
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mcp-server-kubernetes
+    spec:
+      serviceAccountName: mcp-server-kubernetes
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: mcp-server
+          image: ghcr.io/atengk/mcp-server-kubernetes:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--transport"
+            - "sse"
+            - "--port"
+            - "8080"
+          ports:
+            - name: sse-http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-server-kubernetes
+  namespace: mcp-system
+  labels:
+    app.kubernetes.io/name: mcp-server-kubernetes
+spec:
+  type: ClusterIP
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-server-kubernetes
+  ports:
+    - name: sse-http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

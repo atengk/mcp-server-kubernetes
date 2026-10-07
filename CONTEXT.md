@@ -83,3 +83,7 @@ _Avoid_: IAM Policy, Role Matrix
 **Tag SSOT**:
 以 Git 语义化标签作为项目版本的单一真实信源（Single Source of Truth），发版流水线动态注入版本信息，消除仓库内的冗余版本配置文件。
 _Avoid_: Manual Bump, Hardcoded Version
+
+**In-Cluster Manifest**:
+用于在 Kubernetes 集群内以受管 ServiceAccount 凭据部署常驻 SSE 模式 MCP Server 的标准化声明式资源清单。
+_Avoid_: Pod Script, Runbook

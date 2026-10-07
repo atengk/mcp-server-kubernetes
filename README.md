@@ -98,9 +98,19 @@
 }
 ```
 
-### 4. Kubernetes 集群内常驻运行 (SSE 模式 / Docker)
+### 4. Kubernetes 集群内常驻运行 (SSE 模式 / 生产级部署)
 
-使用官方多架构镜像部署为常驻服务：
+#### 方式 A：一键部署到 Kubernetes 集群 (推荐)
+
+仓库已提供包含最小权限 ServiceAccount、只读 RBAC 与健康检测的开箱即用清单：
+
+```bash
+kubectl apply -f deploy/kubernetes-sse.yaml
+```
+
+服务将在 `mcp-system` 命名空间下启动，并通过 `mcp-server-kubernetes.mcp-system.svc:8080` 向集群内的其他服务提供 SSE 协议端点。
+
+#### 方式 B：使用 Docker 单机启动
 
 ```bash
 docker run -d --name mcp-k8s \
@@ -177,17 +187,28 @@ docker run -d --name mcp-k8s \
 │   └── mcp-server-kubernetes/      # Go 应用程序入口 (main.go)
 ├── internal/
 │   ├── config/                     # 命令行参数与环境配置解析
-│   ├── k8s/                        # client-go 与 dynamic 客户端封装
-│   ├── mcp/                        # mark3labs/mcp-go 原语实现 (tools, resources, prompts)
-│   ├── pruning/                    # Smart Pruning 智能降噪与脱敏管道
-│   └── safety/                     # Safety Guard 权限门禁与 Token 守卫
+│   ├── crd/                        # dynamic 客户端与 CRD 动态反射
+│   ├── k8s/                        # client-go 连接池与多 Context 路由
+│   ├── prompts/                    # 专家级运维诊断提示词原语
+│   ├── pruning/                    # Smart Pruning 智能降噪清洗管道与 Secret 脱敏
+│   ├── resources/                  # k8s:// 静态资源与 RFC 6570 参数化模板原语
+│   ├── safety/                     # Safety Guard 门禁、Token 截断与 Dry-Run Diff
+│   ├── server/                     # mark3labs/mcp-go 双通道生命周期管理
+│   ├── tools/                      # 核心诊断、拓扑下钻、RBAC 自检、变更与 Exec 工具
+│   └── version/                    # 构建期动态注入的版本元数据 (Tag SSOT)
 ├── npm/
 │   ├── bin/                        # npx CLI 调度脚本 (cli.js)
-│   ├── scripts/                    # 平台子包生成与矩阵发布脚本
+│   ├── lib/                        # 跨平台架构探测解析器与子包组装器
+│   ├── scripts/                    # 平台子包构建与动态版本同步脚本
 │   └── package.json                # npm 主包配置 (@atengk/mcp-server-kubernetes)
+├── deploy/
+│   └── kubernetes-sse.yaml         # 企业级集群内常驻运行声明式清单 (RBAC + Deployment)
+├── scripts/
+│   └── build-cross-platforms.sh    # 5 大主流平台架构交叉编译脚本
 ├── docs/
-│   ├── adr/                        # 架构决策记录 (0001 ~ 0014)
+│   ├── adr/                        # 架构决策记录 (0001 ~ 0015)
 │   └── agents/                     # Agent 协作规范 (issue-tracker, triage, domain)
+├── Dockerfile                      # 生产级多阶段非 root 容器镜像定义
 ├── .cliff.toml                     # 自动化版本日志提取规则
 ├── .github/workflows/              # GitHub Actions CI 与全自动 Release 流水线
 ├── AGENTS.md                       # AI Agent 协作与工程规范
